@@ -70,7 +70,7 @@ function RoomCard({ room, reading, reload }) {
   const save = async (patch) => {
     setBusy(true);
     setErr(null);
-    const { error } = await supabase.from('rooms').update(patch).eq('id', room.id);
+    const { error } = await supabase.from('muc_rooms').update(patch).eq('id', room.id);
     if (error) setErr(error.message);
     await reload();
     setBusy(false);

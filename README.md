@@ -8,7 +8,7 @@ Komforttemperatur im Loxone-Raumregler. Pilot: **KG Bad**.
 |---|---|
 | Collector | `collector/` – Node.js ≥ 20.6, ohne Zusatzpakete, läuft als NSSM-Dienst auf dem Mini-PC |
 | Web-App | `frontend/` – React + Vite, Hosting Vercel (Root Directory `frontend`) |
-| Datenbank | `supabase/schema.sql` – eigenes Supabase-Projekt „Heizung München“ |
+| Datenbank | `supabase/schema.sql` – Tabellen `muc_*` im Venediger-Supabase-Projekt |
 | Doku | `doc/KONZEPT.md` (Wie & Warum), `doc/INBETRIEBNAHME.md` (Schritt für Schritt) |
 
 ## Kurz

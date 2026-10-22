@@ -65,8 +65,8 @@ function saveCache() {
 async function loadConfig() {
   if (!db.enabled) return;
   try {
-    const [settings] = await db.select('settings', 'id=eq.1');
-    const rooms = await db.select('rooms', 'enabled=eq.true&order=sort.asc');
+    const [settings] = await db.select('muc_settings', 'id=eq.1');
+    const rooms = await db.select('muc_rooms', 'enabled=eq.true&order=sort.asc');
     cache.settings = settings || cache.settings;
     cache.rooms = rooms || cache.rooms;
   } catch (e) {
@@ -109,7 +109,7 @@ async function tick() {
   const held = applyHold({ desired, current: house, now, settings });
   if (held.changed) {
     log(`Modus: ${house?.mode ?? '–'} → ${held.mode} (${held.reason})`);
-    await safeDb('decision', () => db.insert('decisions', [{
+    await safeDb('decision', () => db.insert('muc_decisions', [{
       kind: 'mode', mode: held.mode, reason: held.reason, dry_run: dryRun,
     }]));
   }
@@ -136,7 +136,7 @@ async function tick() {
         if (lw?.target !== t.target) {
           log(`[TESTMODUS] ${room.name}: würde ${t.target} °C setzen (${t.mode}, ${reason})`);
           lastWritten.set(room.id, { target: t.target, at: now });
-          await safeDb('decision', () => db.insert('decisions', [{
+          await safeDb('decision', () => db.insert('muc_decisions', [{
             kind: 'write', room_id: room.id, mode: t.mode, target: t.target, reason, dry_run: true,
           }]));
         }
@@ -146,7 +146,7 @@ async function tick() {
           written = true;
           lastWritten.set(room.id, { target: t.target, at: now });
           log(`${room.name}: Soll ${state.setpoint ?? '?'} → ${t.target} °C (${t.mode}, ${reason})`);
-          await safeDb('decision', () => db.insert('decisions', [{
+          await safeDb('decision', () => db.insert('muc_decisions', [{
             kind: 'write', room_id: room.id, mode: t.mode, target: t.target, reason, dry_run: false,
           }]));
         } catch (e) {
@@ -168,7 +168,7 @@ async function tick() {
 
   // 4) Speichern
   if (latest) {
-    await safeDb('energy', () => db.insert('energy_readings', [{
+    await safeDb('energy', () => db.insert('muc_energy_readings', [{
       pv_w: latest.pvW,
       grid_w: latest.gridW,
       battery_w: latest.batteryW,
@@ -178,10 +178,10 @@ async function tick() {
       house_mode: house.mode,
     }]));
   }
-  if (roomRows.length) await safeDb('rooms', () => db.insert('room_readings', roomRows));
+  if (roomRows.length) await safeDb('rooms', () => db.insert('muc_room_readings', roomRows));
 
   for (const e of errors) log('Fehler:', e);
-  await safeDb('status', () => db.update('collector_status', 'id=eq.1', {
+  await safeDb('status', () => db.update('muc_collector_status', 'id=eq.1', {
     last_seen: now.toISOString(),
     version: VERSION,
     house_mode: house.mode,
@@ -194,7 +194,7 @@ async function tick() {
     last_error: errors.length ? errors.join(' | ').slice(0, 1000) : null,
   }));
   if (errors.length) {
-    await safeDb('decision', () => db.insert('decisions', [{
+    await safeDb('decision', () => db.insert('muc_decisions', [{
       kind: 'error', mode: house.mode, reason: errors.join(' | ').slice(0, 1000), dry_run: dryRun,
     }]));
   }
@@ -205,8 +205,8 @@ async function tick() {
     lastCleanupDay = day;
     const before = new Date(now - cfg.retentionDays * 86400000).toISOString();
     await safeDb('cleanup', async () => {
-      await db.delete('energy_readings', `ts=lt.${before}`);
-      await db.delete('room_readings', `ts=lt.${before}`);
+      await db.delete('muc_energy_readings', `ts=lt.${before}`);
+      await db.delete('muc_room_readings', `ts=lt.${before}`);
     });
   }
 

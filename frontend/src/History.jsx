@@ -30,7 +30,7 @@ export default function History({ rooms }) {
     if (!roomId) return;
     let cancel = false;
     setRows(null);
-    supabase.rpc('history', { p_hours: hours, p_room: roomId }).then(({ data, error }) => {
+    supabase.rpc('muc_history', { p_hours: hours, p_room: roomId }).then(({ data, error }) => {
       if (cancel) return;
       if (error) setError(error.message);
       else {

@@ -1,34 +1,39 @@
 -- Heizung München – Datenbank-Schema
--- Einmalig im Supabase SQL-Editor des NEUEN Projekts ausführen.
--- Kann gefahrlos erneut ausgeführt werden (IF NOT EXISTS / ON CONFLICT).
+--
+-- Läuft im BESTEHENDEN Venediger-Supabase-Projekt mit. Alle Objekte tragen das
+-- Präfix muc_, damit nichts mit den Venediger-Tabellen (rooms, energy_readings …)
+-- kollidiert. Bestehende Venediger-Objekte werden NICHT verändert.
+--
+-- Einmalig im Supabase SQL-Editor ausführen. Kann gefahrlos erneut ausgeführt
+-- werden (IF NOT EXISTS / ON CONFLICT / CREATE OR REPLACE).
 
 -- ---------------------------------------------------------------------------
 -- Einstellungen (genau eine Zeile, id = 1)
 -- ---------------------------------------------------------------------------
-create table if not exists public.settings (
-  id               int primary key default 1 check (id = 1),
-  timezone         text    not null default 'Europe/Berlin',
+create table if not exists public.muc_settings (
+  id                 int primary key default 1 check (id = 1),
+  timezone           text    not null default 'Europe/Berlin',
   automation_enabled boolean not null default true,
-  dry_run          boolean not null default true,   -- Testmodus: nur protokollieren, nichts schreiben
-  night_start      text    not null default '20:00',
-  night_end        text    not null default '09:00',
-  evening_start    text    not null default '16:00',
-  surplus_on_w     int     not null default 1500,   -- PV-Laden ein ab diesem Überschuss
-  surplus_off_w    int     not null default 300,    -- PV-Laden aus unter diesem Überschuss
-  pv_min_soc       int     not null default 60,     -- Batterieladung zählt erst ab diesem SoC als Überschuss
-  reserve_soc      int     not null default 40,     -- Abendreserve
-  full_soc         int     not null default 95,     -- "Batterie voll"
-  full_export_w    int     not null default 3000,
-  hold_minutes     int     not null default 30,     -- Mindestdauer eines Modus
-  average_minutes  int     not null default 5,      -- Glättung der FENECON-Werte
-  updated_at       timestamptz not null default now()
+  dry_run            boolean not null default true,   -- Testmodus: nur protokollieren, nichts schreiben
+  night_start        text    not null default '20:00',
+  night_end          text    not null default '09:00',
+  evening_start      text    not null default '16:00',
+  surplus_on_w       int     not null default 1500,   -- PV-Laden ein ab diesem Überschuss
+  surplus_off_w      int     not null default 300,    -- PV-Laden aus unter diesem Überschuss
+  pv_min_soc         int     not null default 60,     -- Batterieladung zählt erst ab diesem SoC als Überschuss
+  reserve_soc        int     not null default 40,     -- Abendreserve
+  full_soc           int     not null default 95,     -- "Batterie voll"
+  full_export_w      int     not null default 3000,
+  hold_minutes       int     not null default 30,     -- Mindestdauer eines Modus
+  average_minutes    int     not null default 5,      -- Glättung der FENECON-Werte
+  updated_at         timestamptz not null default now()
 );
-insert into public.settings (id) values (1) on conflict (id) do nothing;
+insert into public.muc_settings (id) values (1) on conflict (id) do nothing;
 
 -- ---------------------------------------------------------------------------
 -- Räume
 -- ---------------------------------------------------------------------------
-create table if not exists public.rooms (
+create table if not exists public.muc_rooms (
   id                   text primary key,             -- z. B. 'kg_bad'
   name                 text not null,
   enabled              boolean not null default true,
@@ -47,14 +52,14 @@ create table if not exists public.rooms (
   updated_at           timestamptz not null default now()
 );
 
-insert into public.rooms (id, name, sort, loxone_temp_name, loxone_setpoint_name, loxone_valve_name)
+insert into public.muc_rooms (id, name, sort, loxone_temp_name, loxone_setpoint_name, loxone_valve_name)
 values ('kg_bad', 'KG Bad', 10, 'Temp KG Bad', 'API_Boost_Bad', 'Bad KG')
 on conflict (id) do nothing;
 
 -- ---------------------------------------------------------------------------
 -- Messwerte & Protokoll
 -- ---------------------------------------------------------------------------
-create table if not exists public.energy_readings (
+create table if not exists public.muc_energy_readings (
   id            bigint generated always as identity primary key,
   ts            timestamptz not null default now(),
   pv_w          int,
@@ -65,33 +70,33 @@ create table if not exists public.energy_readings (
   surplus_w     int,
   house_mode    text
 );
-create index if not exists energy_readings_ts on public.energy_readings (ts desc);
+create index if not exists muc_energy_readings_ts on public.muc_energy_readings (ts desc);
 
-create table if not exists public.room_readings (
+create table if not exists public.muc_room_readings (
   id        bigint generated always as identity primary key,
   ts        timestamptz not null default now(),
-  room_id   text not null references public.rooms(id) on delete cascade,
+  room_id   text not null references public.muc_rooms(id) on delete cascade,
   temp      numeric(5,2),
   setpoint  numeric(4,1),
   valve     smallint,
   target    numeric(4,1),
   mode      text
 );
-create index if not exists room_readings_room_ts on public.room_readings (room_id, ts desc);
+create index if not exists muc_room_readings_room_ts on public.muc_room_readings (room_id, ts desc);
 
-create table if not exists public.decisions (
+create table if not exists public.muc_decisions (
   id       bigint generated always as identity primary key,
   ts       timestamptz not null default now(),
   kind     text not null,      -- 'mode' | 'write' | 'error'
-  room_id  text references public.rooms(id) on delete set null,
+  room_id  text references public.muc_rooms(id) on delete set null,
   mode     text,
   target   numeric(4,1),
   reason   text,
   dry_run  boolean
 );
-create index if not exists decisions_ts on public.decisions (ts desc);
+create index if not exists muc_decisions_ts on public.muc_decisions (ts desc);
 
-create table if not exists public.collector_status (
+create table if not exists public.muc_collector_status (
   id           int primary key default 1 check (id = 1),
   last_seen    timestamptz,
   version      text,
@@ -104,51 +109,45 @@ create table if not exists public.collector_status (
   loxone_ok    boolean,
   last_error   text
 );
-insert into public.collector_status (id) values (1) on conflict (id) do nothing;
+insert into public.muc_collector_status (id) values (1) on conflict (id) do nothing;
 
 -- updated_at automatisch pflegen
-create or replace function public.touch_updated_at() returns trigger language plpgsql as $$
+create or replace function public.muc_touch_updated_at() returns trigger language plpgsql as $$
 begin new.updated_at = now(); return new; end $$;
-drop trigger if exists settings_touch on public.settings;
-create trigger settings_touch before update on public.settings for each row execute function public.touch_updated_at();
-drop trigger if exists rooms_touch on public.rooms;
-create trigger rooms_touch before update on public.rooms for each row execute function public.touch_updated_at();
+drop trigger if exists muc_settings_touch on public.muc_settings;
+create trigger muc_settings_touch before update on public.muc_settings for each row execute function public.muc_touch_updated_at();
+drop trigger if exists muc_rooms_touch on public.muc_rooms;
+create trigger muc_rooms_touch before update on public.muc_rooms for each row execute function public.muc_touch_updated_at();
 
 -- ---------------------------------------------------------------------------
 -- Zugriff: Die App (angemeldete Benutzer) darf lesen und Einstellungen/Räume ändern.
 -- Der Collector nutzt den service_role-Key und umgeht RLS.
--- Anonyme Zugriffe sind gesperrt.
+-- Anonyme Zugriffe sind gesperrt. Rechte werden NUR auf die muc_-Tabellen vergeben.
 -- ---------------------------------------------------------------------------
-alter table public.settings         enable row level security;
-alter table public.rooms            enable row level security;
-alter table public.energy_readings  enable row level security;
-alter table public.room_readings    enable row level security;
-alter table public.decisions        enable row level security;
-alter table public.collector_status enable row level security;
-
 do $$
 declare t text;
 begin
-  foreach t in array array['settings','rooms','energy_readings','room_readings','decisions','collector_status'] loop
-    execute format('drop policy if exists "auth read" on public.%I', t);
-    execute format('create policy "auth read" on public.%I for select to authenticated using (true)', t);
+  foreach t in array array['muc_settings','muc_rooms','muc_energy_readings','muc_room_readings','muc_decisions','muc_collector_status'] loop
+    execute format('alter table public.%I enable row level security', t);
+    execute format('drop policy if exists "muc auth read" on public.%I', t);
+    execute format('create policy "muc auth read" on public.%I for select to authenticated using (true)', t);
+    execute format('revoke all on public.%I from anon', t);
+    execute format('grant select on public.%I to authenticated', t);
+    execute format('grant all on public.%I to service_role', t);
   end loop;
 end $$;
 
-drop policy if exists "auth update" on public.settings;
-create policy "auth update" on public.settings for update to authenticated using (true) with check (true);
-drop policy if exists "auth update" on public.rooms;
-create policy "auth update" on public.rooms for update to authenticated using (true) with check (true);
-
-grant select on all tables in schema public to authenticated;
-grant update on public.settings, public.rooms to authenticated;
-grant all on all tables in schema public to service_role;
+drop policy if exists "muc auth update" on public.muc_settings;
+create policy "muc auth update" on public.muc_settings for update to authenticated using (true) with check (true);
+drop policy if exists "muc auth update" on public.muc_rooms;
+create policy "muc auth update" on public.muc_rooms for update to authenticated using (true) with check (true);
+grant update on public.muc_settings, public.muc_rooms to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- Verlauf für die App: zu Zeitblöcken verdichtet (max. ~300 Punkte),
 -- damit auch 7 Tage unter dem Supabase-Zeilenlimit bleiben.
 -- ---------------------------------------------------------------------------
-create or replace function public.history(p_hours int, p_room text)
+create or replace function public.muc_history(p_hours int, p_room text)
 returns table (
   bucket timestamptz, pv_w int, grid_w int, battery_w int, soc int, surplus_w int,
   temp numeric, setpoint numeric, target numeric, valve numeric
@@ -162,17 +161,18 @@ language sql stable security invoker set search_path = public as $$
     select date_bin(p.step, r.ts, p.since) b,
            avg(pv_w)::int pv_w, avg(grid_w)::int grid_w, avg(battery_w)::int battery_w,
            avg(soc)::int soc, avg(surplus_w)::int surplus_w
-    from energy_readings r, params p where r.ts >= p.since group by 1
+    from muc_energy_readings r, params p where r.ts >= p.since group by 1
   ),
   rr as (
     select date_bin(p.step, r.ts, p.since) b,
            round(avg(temp), 2) temp, round(avg(setpoint), 1) setpoint,
            round(avg(target), 1) target, round(avg(valve), 2) valve
-    from room_readings r, params p where r.ts >= p.since and r.room_id = p_room group by 1
+    from muc_room_readings r, params p where r.ts >= p.since and r.room_id = p_room group by 1
   )
   select coalesce(e.b, rr.b), e.pv_w, e.grid_w, e.battery_w, e.soc, e.surplus_w,
          rr.temp, rr.setpoint, rr.target, rr.valve
   from e full outer join rr on rr.b = e.b
   order by 1;
 $$;
-grant execute on function public.history(int, text) to authenticated;
+revoke all on function public.muc_history(int, text) from public, anon;
+grant execute on function public.muc_history(int, text) to authenticated;

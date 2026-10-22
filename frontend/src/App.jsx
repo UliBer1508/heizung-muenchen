@@ -49,12 +49,12 @@ export function useLiveData(intervalMs = 30000) {
   const [error, setError] = useState(null);
   const load = useCallback(async () => {
     const [settings, rooms, status, energy, roomReadings, decisions] = await Promise.all([
-      supabase.from('settings').select('*').eq('id', 1).single(),
-      supabase.from('rooms').select('*').order('sort'),
-      supabase.from('collector_status').select('*').eq('id', 1).single(),
-      supabase.from('energy_readings').select('*').order('ts', { ascending: false }).limit(1),
-      supabase.from('room_readings').select('*').order('ts', { ascending: false }).limit(50),
-      supabase.from('decisions').select('*').order('ts', { ascending: false }).limit(100),
+      supabase.from('muc_settings').select('*').eq('id', 1).single(),
+      supabase.from('muc_rooms').select('*').order('sort'),
+      supabase.from('muc_collector_status').select('*').eq('id', 1).single(),
+      supabase.from('muc_energy_readings').select('*').order('ts', { ascending: false }).limit(1),
+      supabase.from('muc_room_readings').select('*').order('ts', { ascending: false }).limit(50),
+      supabase.from('muc_decisions').select('*').order('ts', { ascending: false }).limit(100),
     ]);
     const firstErr = [settings, rooms, status, energy, roomReadings, decisions].find((r) => r.error);
     if (firstErr) {

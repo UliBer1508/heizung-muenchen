@@ -33,17 +33,23 @@ http://192.168.188.128/jdev/sps/io/Bad%20KG/state            → Ventil 0/1
 
 ---
 
-## 2. Supabase-Projekt anlegen
+## 2. Supabase: Tabellen im Venediger-Projekt anlegen
 
-1. supabase.com → *New project* → Name **Heizung München**, Region **Frankfurt (eu-central-1)**.
-2. *SQL Editor* → Inhalt von `supabase/schema.sql` einfügen → *Run*.
-   Ergebnis: Tabellen angelegt, KG Bad eingetragen, Testmodus an.
-3. *Authentication → Users → Add user*: deine E-Mail + Passwort, *Auto Confirm* ✔.
-4. *Authentication → Sign In / Providers*: **„Allow new users to sign up“ ausschalten**.
-5. *Project Settings → API*: notieren
+München läuft im **bestehenden Venediger-Projekt** mit (Organisation „KI-Heizungssteuerung“,
+Projekt `pflnniklvqbwjwrjswaz`), weil das Gratis-Limit von zwei Projekten erreicht ist.
+Alle München-Tabellen beginnen mit **`muc_`** – Venediger wird nicht verändert.
+
+1. Venediger-Projekt öffnen → *SQL Editor* → *New query*.
+2. Inhalt von `supabase/schema.sql` einfügen → *Run*.
+   Ergebnis: sechs `muc_`-Tabellen, KG Bad eingetragen, Testmodus an.
+3. Anmeldung: Du nutzt **denselben Benutzer wie in der Venediger-App**. Nichts anzulegen.
+4. *Project Settings → API*: notieren
    - Project URL
    - `anon public` Key (für die App)
    - `service_role` Key (nur für den Collector, geheim!)
+
+Hinweis: Der `service_role`-Key gilt für das ganze Projekt, also auch für die Venediger-Tabellen.
+Er bleibt deshalb ausschließlich in der `.env` auf dem Mini-PC.
 
 ---
 
@@ -100,7 +106,7 @@ Update später: `git pull` → `nssm restart HeizungMuenchen`.
 1. vercel.com → *Add New → Project* → Repo **heizung-muenchen** importieren.
 2. *Root Directory*: **`frontend`** · Framework: **Vite**.
 3. *Environment Variables*: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (anon, nicht service_role!).
-4. *Deploy* → mit dem Supabase-Benutzer aus 2.3 anmelden.
+4. *Deploy* → mit deinem Venediger-App-Benutzer anmelden.
 
 Lokal testen: `cd frontend` → `.env.local` aus `.env.example` → `npm install` → `npm run dev`.
 

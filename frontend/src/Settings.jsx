@@ -55,7 +55,7 @@ export default function Settings({ data, reload }) {
     setBusy(true);
     setMsg(null);
     const { id, updated_at, ...rest } = patch ? { ...s, ...patch } : s;
-    const { error } = await supabase.from('settings').update(rest).eq('id', 1);
+    const { error } = await supabase.from('muc_settings').update(rest).eq('id', 1);
     if (error) setMsg({ err: true, t: error.message });
     else {
       if (patch) setS((x) => ({ ...x, ...patch }));
@@ -75,7 +75,7 @@ export default function Settings({ data, reload }) {
       setBusy(false);
       return;
     }
-    const { error } = await supabase.from('rooms').update({ ...patch, enabled: room.enabled }).eq('id', room.id);
+    const { error } = await supabase.from('muc_rooms').update({ ...patch, enabled: room.enabled }).eq('id', room.id);
     setMsg(error ? { err: true, t: error.message } : { t: `${room.name} gespeichert.` });
     await reload();
     setBusy(false);

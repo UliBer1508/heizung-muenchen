@@ -36,7 +36,7 @@ FENECON (Modbus) ─┐
                   ├─► Collector (Node.js, Mini-PC, NSSM-Dienst) ──► Loxone: Sollwert je Raum
 Loxone (HTTP)  ───┘        │  Heizlogik läuft LOKAL
                            ▼
-                    Supabase (Messwerte, Einstellungen, Protokoll)
+                    Supabase (Venediger-Projekt, muc_-Tabellen)
                            ▲
                     Web-App (React, Vercel): Übersicht, Verlauf, Protokoll, Einstellungen
 ```
@@ -80,15 +80,19 @@ Alle Werte sind in der App unter *Einstellungen* änderbar.
 
 ## Datenmodell (Supabase)
 
+München läuft im **Venediger-Supabase-Projekt** mit (Gratis-Limit von zwei Projekten erreicht).
+Alle Objekte tragen das Präfix `muc_`; Venediger-Tabellen bleiben unverändert.
+Rechte (RLS, Grants) werden nur auf die `muc_`-Tabellen vergeben.
+
 | Tabelle | Inhalt |
 |---|---|
-| `settings` | eine Zeile: Zeiten, Schwellwerte, Testmodus |
-| `rooms` | Räume mit Loxone-Bezeichnungen, Temperaturen je Modus, Override |
-| `energy_readings` | FENECON-Werte jede Minute (90 Tage) |
-| `room_readings` | Ist, Soll, Ventil, Ziel je Raum jede Minute (90 Tage) |
-| `decisions` | Moduswechsel, geschriebene Sollwerte, Fehler |
-| `collector_status` | Lebenszeichen und aktueller Modus |
-| `history()` | verdichteter Verlauf für die Grafiken |
+| `muc_settings` | eine Zeile: Zeiten, Schwellwerte, Testmodus |
+| `muc_rooms` | Räume mit Loxone-Bezeichnungen, Temperaturen je Modus, Override |
+| `muc_energy_readings` | FENECON-Werte jede Minute (90 Tage) |
+| `muc_room_readings` | Ist, Soll, Ventil, Ziel je Raum jede Minute (90 Tage) |
+| `muc_decisions` | Moduswechsel, geschriebene Sollwerte, Fehler |
+| `muc_collector_status` | Lebenszeichen und aktueller Modus |
+| `muc_history()` | verdichteter Verlauf für die Grafiken |
 
 ## Ausbau (nach erfolgreichem Pilot)
 
