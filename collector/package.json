@@ -1,6 +1,6 @@
 {
   "name": "heizung-muenchen-collector",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Liest FENECON und Loxone, steuert die Raum-Sollwerte nach PV-Überschuss",
   "type": "module",
@@ -10,8 +10,9 @@
   "scripts": {
     "start": "node --env-file=.env src/index.js",
     "once": "node --env-file=.env src/index.js --once",
-    "test": "node --test test/logic.test.js test/integration.test.js",
+    "test": "node --test test/logic.test.js test/integration.test.js test/fems-rest.test.js",
     "test:fenecon": "node --env-file=.env scripts/test-fenecon.js",
-    "test:loxone": "node --env-file=.env scripts/test-loxone.js"
+    "test:loxone": "node --env-file=.env scripts/test-loxone.js",
+    "test:wetter": "node --env-file=.env scripts/test-wetter.js"
   }
 }

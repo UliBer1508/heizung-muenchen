@@ -71,6 +71,8 @@ export function useLiveData(intervalMs = 30000) {
       supabase.from('muc_room_readings').select('*').order('ts', { ascending: false }).limit(50),
       supabase.from('muc_decisions').select('*').order('ts', { ascending: false }).limit(100),
     ]);
+    // Prognose ist optional (migration-004) – ein Fehler hier blockiert die App nicht
+    const forecast = await supabase.from('muc_forecast').select('*').order('ts', { ascending: false }).limit(1);
     const firstErr = [settings, rooms, status, energy, roomReadings, decisions].find((r) => r.error);
     if (firstErr) {
       setError(firstErr.error.message);
@@ -86,6 +88,7 @@ export function useLiveData(intervalMs = 30000) {
       energy: energy.data[0] || null,
       latestByRoom,
       decisions: decisions.data,
+      forecast: forecast.error ? null : forecast.data?.[0] || null,
       loadedAt: new Date(),
     });
   }, []);

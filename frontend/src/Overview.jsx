@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { supabase } from './supabase.js';
-import { fmtW, fmtT, fmtTime, minutesAgo, modeMeta } from './lib.js';
+import { fmtW, fmtT, fmtTime, minutesAgo, modeMeta, weatherText, clockIn } from './lib.js';
 
 function StatusBar({ status, settings }) {
   const age = minutesAgo(status?.last_seen);
@@ -55,6 +55,74 @@ function Energy({ e }) {
         </div>
       ))}
       <div className="muted small energy-foot">Stand {fmtTime(e?.ts)}</div>
+    </section>
+  );
+}
+
+function forecastHint(f) {
+  // Mittag morgen (24-h-Wert liegt dann um die Mittagszeit) als einfache Einordnung
+  const h = Number(new Date(new Date(f.ts).getTime() + 24 * 3600000).toLocaleString('en-GB', { hour: 'numeric', hour12: false, timeZone: 'Europe/Berlin' }));
+  if (f.pv_24h == null || h < 10 || h > 15) return null;
+  const kw = (f.pv_24h / 1000).toLocaleString('de-DE', { maximumFractionDigits: 1 });
+  if (f.pv_24h >= 4000) return `Morgen gegen ${h} Uhr erwartet FENECON ${kw} kW PV – ein sonniger Tag.`;
+  if (f.pv_24h >= 1500) return `Morgen gegen ${h} Uhr erwartet FENECON ${kw} kW PV – wechselhaft.`;
+  return `Morgen gegen ${h} Uhr erwartet FENECON nur ${kw} kW PV – wenig Sonne.`;
+}
+
+function Forecast({ f }) {
+  if (!f) return null;
+  const age = minutesAgo(f.ts);
+  const now = weatherText(f.weather_code);
+  const sun = f.sunshine_today_s != null ? (f.sunshine_today_s / 3600).toLocaleString('de-DE', { maximumFractionDigits: 1 }) : null;
+  const pv = [1, 3, 6, 12, 24, 36].map((h) => ({ h, v: f[`pv_${h}h`] })).filter((x) => x.v != null);
+  const wx = [4, 8, 12, 16, 20, 24].map((h) => ({ h, t: f[`temp_${h}h`], c: f[`code_${h}h`] })).filter((x) => x.t != null || x.c != null);
+  const hint = forecastHint(f);
+  return (
+    <section className="card forecast">
+      <div className="forecast-head">
+        <div>
+          <div className="eyebrow">Wetter & PV-Prognose · FENECON</div>
+          <div className="forecast-now">
+            <span className="forecast-icon" aria-hidden="true">{now.icon}</span>
+            <span className="big">{fmtT(f.outdoor_c, 0)}</span>
+            <span>{now.text}</span>
+          </div>
+          <div className="muted small">
+            Heute {f.today_min_c ?? '–'} bis {f.today_max_c ?? '–'} °C{sun != null && <> · Sonne {sun} h</>}
+          </div>
+        </div>
+        <div className={`muted small ${age != null && age > 40 ? 'warn-text' : ''}`}>Stand {fmtTime(f.ts)}</div>
+      </div>
+      {hint && <div className="forecast-hint">{hint}</div>}
+      {pv.length > 0 && (
+        <div>
+          <div className="eyebrow">Erwartete PV-Leistung</div>
+          <div className="forecast-row">
+            {pv.map((x) => (
+              <div key={x.h} className="fc-cell">
+                <div className="muted small">{clockIn(f.ts, x.h)}</div>
+                <div className="fc-value">{fmtW(x.v)}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {wx.length > 0 && (
+        <div>
+          <div className="eyebrow">Wetter</div>
+          <div className="forecast-row">
+            {wx.map((x) => {
+              const w = weatherText(x.c);
+              return (
+                <div key={x.h} className="fc-cell" title={w.text}>
+                  <div className="muted small">{clockIn(f.ts, x.h)}</div>
+                  <div className="fc-value">{w.icon} {x.t != null ? `${x.t}°` : ''}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -155,6 +223,7 @@ export default function Overview({ data, reload }) {
         <ModeHero status={data.status} />
         <Energy e={data.energy} />
       </div>
+      <Forecast f={data.forecast} />
       <div className="rooms">
         {data.rooms.filter((r) => r.enabled).map((r) => (
           <RoomCard key={r.id} room={r} reading={data.latestByRoom[r.id]} reload={reload} />

@@ -27,3 +27,29 @@ export const fmtDateTime = (ts) =>
     : '–';
 
 export const minutesAgo = (ts) => (ts ? Math.round((Date.now() - new Date(ts)) / 60000) : null);
+
+// Wetterlage nach WMO-Schlüssel (so liefert sie die FEMS-App „Wetter“)
+export function weatherText(code) {
+  if (code == null) return { icon: '·', text: '–' };
+  const c = Number(code);
+  if (c === 0) return { icon: '☀️', text: 'klar' };
+  if (c === 1) return { icon: '🌤️', text: 'überwiegend klar' };
+  if (c === 2) return { icon: '⛅', text: 'teils bewölkt' };
+  if (c === 3) return { icon: '☁️', text: 'bewölkt' };
+  if (c === 45 || c === 48) return { icon: '🌫️', text: 'Nebel' };
+  if (c >= 51 && c <= 57) return { icon: '🌦️', text: 'Niesel' };
+  if ((c >= 61 && c <= 67) || (c >= 80 && c <= 82)) return { icon: '🌧️', text: 'Regen' };
+  if ((c >= 71 && c <= 77) || c === 85 || c === 86) return { icon: '🌨️', text: 'Schnee' };
+  if (c >= 95) return { icon: '⛈️', text: 'Gewitter' };
+  return { icon: '·', text: `Code ${c}` };
+}
+
+// Uhrzeit „ts + h Stunden“ in Berlin, auf volle Stunde gerundet: „13 Uhr“ bzw. „Sa 12 Uhr“
+export function clockIn(ts, h) {
+  const t = new Date(Math.round((new Date(ts).getTime() + h * 3600000) / 3600000) * 3600000);
+  const day = (d) => d.toLocaleDateString('en-CA', { timeZone: 'Europe/Berlin' });
+  const hour = Number(t.toLocaleString('en-GB', { hour: 'numeric', hour12: false, timeZone: 'Europe/Berlin' })) % 24;
+  if (day(t) === day(new Date())) return `${hour} Uhr`;
+  const wd = t.toLocaleDateString('de-DE', { weekday: 'short', timeZone: 'Europe/Berlin' }).replace('.', '');
+  return `${wd} ${hour} Uhr`;
+}

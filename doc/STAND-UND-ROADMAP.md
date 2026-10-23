@@ -1,6 +1,6 @@
 # Heizung München – Projektstand und Roadmap
 
-Stand: 23.10.2026 · Collector-Version 0.3.0
+Stand: 23.10.2026 · Collector-Version 0.4.0
 
 Dieses Dokument fasst zusammen, was bisher umgesetzt wurde, welche Phasen noch offen sind
 und was darüber hinaus empfehlenswert ist. Technische Details stehen in
@@ -68,8 +68,12 @@ Namen ohne Umlaute verwenden (z. B. „Buero“), sonst drohen 404-Fehler beim W
 - Haltezeit 30 min, Hysterese, Sicherheitsgrenzen 5–26 °C (zusätzlich zu Loxone),
   ohne FENECON-Daten sicherer Normalbetrieb.
 - Sollwert wird alle 2 h bestätigt (falls Loxone neu gestartet hat).
-- Seit 0.2.0: Außentemperatur (Open-Meteo) und Auto-Ladeleistung (evcc, nur lesend).
-- 16 automatische Tests (Logik, Modbus, Loxone, kompletter Durchlauf).
+- Seit 0.2.0: Auto-Ladeleistung (evcc, nur lesend).
+- **Seit 0.4.0: Wetter und PV-Prognose vom FEMS** (eine Datenquelle statt eigener Wetterdienst):
+  alle 15 min per REST (App „REST/JSON lesend“, Gastpasswort `user`) die Kanäle
+  `weather0/*` (App „Wetter“) und `predictor*/*` (Erzeugungs- und Verbrauchsprognose).
+  Daraus kommt auch die Außentemperatur. Open-Meteo nur noch als Notlösung, wenn das FEMS keine Temperatur liefert.
+- 18 automatische Tests (Logik, Modbus, Loxone, FEMS-REST, kompletter Durchlauf).
 
 ### 2.3 Datenbank (Supabase)
 
@@ -77,12 +81,14 @@ Namen ohne Umlaute verwenden (z. B. „Buero“), sonst drohen 404-Fehler beim W
   Venediger-Tabellen werden nicht verändert, Rechte nur auf `muc_*`.
 - Messwerte 90 Tage, Einstellungen, Räume, Entscheidungsprotokoll, Collector-Status.
 - Auswertungsfunktionen: Tageskennzahlen, Tagesverlauf, Raumkennzahlen, Raumverlauf.
+- `muc_forecast` (seit migration-004): Wetter und Prognose alle 15 min, dauerhaft – Grundlage, um die
+  Treffsicherheit der FENECON-Prognose zu prüfen, bevor die Steuerung sie nutzt.
 
 ### 2.4 Web-App (Vercel, PWA)
 
 - Login über Supabase, installierbar auf dem Handy (Startbildschirm), mobile Ansicht mit Tab-Leiste unten.
-- **Übersicht:** Betriebsmodus mit Begründung, Energiewerte, Raumkarten (Ist, Soll, Ventil),
-  manuelles Übersteuern mit Ablaufzeit.
+- **Übersicht:** Betriebsmodus mit Begründung, Energiewerte, **Wetter & PV-Prognose (FENECON)**,
+  Raumkarten (Ist, Soll, Ventil), manuelles Übersteuern mit Ablaufzeit.
 - **Analyse – Tag:** Netzbezug (davon nachts), PV, Autarkie, Batterie leer, Außentemperatur,
   geschätzter Heizstrom und dessen Herkunft (Sonne/Batterie/Netz), Tageskurven.
 - **Analyse – Räume:** Ø Ist/Soll, Abweichung, Stunden zu kalt, Aufheiz-/Abkühlrate,
@@ -144,8 +150,16 @@ Namen ohne Umlaute verwenden (z. B. „Buero“), sonst drohen 404-Fehler beim W
 - Hinweis: Sobald die App ϑch steuert, wirkt die Komforttemperatur der Loxone-App für diesen Raum nicht mehr.
 
 ### Phase 5 – Vorausschauende Steuerung
-- PV-Prognose (Forecast.Solar) und Wetter: nachts tiefer absenken, wenn morgen Sonne kommt;
-  mittags vorladen, wenn der Nachmittag bewölkt wird.
+- ✅ Schritt 1 (0.4.0): Wetter und PV-Prognose vom FEMS werden gespeichert und in der App angezeigt – **noch ohne Eingriff in die Steuerung**.
+- Schritt 2 (nach 1–2 Wochen Daten): Treffsicherheit prüfen (Prognose „Ahead“ gegen gemessene PV bzw. „Realized“).
+- Schritt 3: Steuerung nutzt die Prognose –
+  morgens nicht aus Batterie/Netz heizen, wenn mittags viel Sonne kommt;
+  vor kalten Nächten mit trübem Folgetag nachmittags mit PV vorheizen;
+  an trüben Tagen früherer Abend-Schutz (Verbrauchsprognose `predictor2` hilft abzuschätzen, ob die Batterie bis morgens reicht).
+- Verfügbare FEMS-Kanäle: Temperatur jetzt / in 4–24 h, Tages-Min/Max, Wetterlage (WMO-Schlüssel),
+  Sonnenscheindauer heute, PV-Leistung in 1/3/6/12/24/36 h, Hausverbrauch in 1/3/6/12/24/36 h.
+  Einschränkung: nur diese Zeitpunkte, keine Stundenkurve.
+- Hinweis: Im FEMS ist die „netzdienliche Beladung“ (`ctrlGridOptimizedCharge0`) aktiv und nutzt dieselbe Prognose.
 - Automatische Empfehlungen aus den Raumkennzahlen (z. B. „DG Bad hält Wärme 5 h – PV-Temperatur +0,5 °C“),
   optional KI-Tagesplan wie in Venediger.
 
@@ -178,7 +192,8 @@ Die Punkte 1 und 2 kann der Heizungsbauer beim Termin für das LAN-Kabel mit erl
 | Update einspielen | `cd C:\Users\ulibe\heizung-muenchen` → `git pull` → `C:\nssm\nssm.exe restart HeizungMuenchen` |
 | Protokoll ansehen | `Get-Content C:\Users\ulibe\heizung-muenchen\collector\state\collector.log -Tail 20 -Encoding UTF8` |
 | Dienststatus | `C:\nssm\nssm.exe status HeizungMuenchen` |
-| Hardware testen | `cd collector` → `npm run test:fenecon` / `npm run test:loxone` |
+| Hardware testen | `cd collector` → `npm run test:fenecon` / `npm run test:loxone` / `npm run test:wetter` |
+| Alle FEMS-Kanäle ansehen | `curl.exe -s -u x:user "http://192.168.188.59/rest/channel/.*/.*" -o fems-kanaele.json` |
 | Sofort nichts mehr schalten | App → Einstellungen → Automatik **Aus** (oder `FORCE_DRY_RUN=1` in `.env` + Neustart) |
 | Datenbank-Änderungen | Supabase → SQL Editor → Datei aus `supabase/` ausführen |
 | Web-App | Vercel baut nach jedem Commit automatisch neu |

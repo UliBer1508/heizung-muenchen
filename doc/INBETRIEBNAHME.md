@@ -160,3 +160,30 @@ Hinweis: Der Heizstrom ist bis zur Messung an der Wärmepumpe eine Schätzung
    (`muc_daily_stats`, `muc_room_daily_stats`). Die Minutenwerte werden weiterhin nach 90 Tagen gelöscht,
    die Tageswerte bleiben – damit sind Monats- und Jahresauswertungen möglich.
 3. App: Analyse → **Tag / Woche / Monat / Jahr** und **Energie / Räume**.
+
+---
+
+## 8. Update: Wetter und PV-Prognose vom FEMS (Collector 0.4.0)
+
+Voraussetzung im FEMS (App-Center, beide kostenlos): **REST/JSON lesend** und **Wetter** installiert.
+
+1. Supabase → SQL Editor → Inhalt von `supabase/migration-004-prognose.sql` → *Run*
+   (Ergebnis: „muc_forecast angelegt“).
+2. Mini-PC:
+   ```powershell
+   cd C:\Users\ulibe\heizung-muenchen
+   git pull
+   cd collector
+   npm run test:wetter
+   C:\nssm\nssm.exe restart HeizungMuenchen
+   ```
+   `test:wetter` zeigt Temperatur, Wetterlage und PV-Prognose so, wie sie gespeichert werden.
+   Die `.env` muss nicht geändert werden (Standard: FEMS-IP aus `FENECON_HOST`, Port 80, Passwort `user`).
+   Nur falls das FEMS-Gastpasswort geändert wurde: `FEMS_REST_PASSWORD=...` in die `.env`.
+3. App → Übersicht: Karte **Wetter & PV-Prognose · FENECON** (nach spätestens 15 Minuten).
+
+Kontrolle in Supabase:
+```sql
+select ts, outdoor_c, weather_code, sunshine_today_s, pv_1h, pv_24h, load_1h
+from muc_forecast order by ts desc limit 5;
+```

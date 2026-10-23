@@ -8,11 +8,12 @@ import { readFenecon } from './fenecon.js';
 import { LoxoneClient, readRoom } from './loxone.js';
 import { Db } from './db.js';
 import { readOutdoorTemp, readEvccChargePower } from './extras.js';
+import { readFemsForecast } from './fems-rest.js';
 import {
   DEFAULT_SETTINGS, averageEnergy, desiredHouseMode, applyHold, roomTarget, needsWrite, surplusW,
 } from './logic.js';
 
-const VERSION = '0.3.0';
+const VERSION = '0.4.0';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const stateDir = process.env.STATE_DIR || path.join(here, '..', 'state');
 const cacheFile = path.join(stateDir, 'cache.json');
@@ -35,7 +36,14 @@ const cfg = {
   },
   supabase: { url: env.SUPABASE_URL, key: env.SUPABASE_SERVICE_ROLE_KEY },
   // Analyse (optional)
-  weather: env.WEATHER === 'off' ? null : { lat: Number(env.WEATHER_LAT || 48.14), lon: Number(env.WEATHER_LON || 11.58), everyMin: 15 },
+  // Wetter + Prognose vom FEMS (App "REST/JSON lesend"), Open-Meteo nur als Notlösung für die Außentemperatur
+  femsRest: env.FEMS_REST === 'off' ? null : {
+    host: env.FEMS_REST_HOST || env.FENECON_HOST || '192.168.188.59',
+    port: Number(env.FEMS_REST_PORT || 80),
+    password: env.FEMS_REST_PASSWORD || 'user',
+    everyMin: 15,
+  },
+  weather: env.WEATHER === 'off' ? null : { lat: Number(env.WEATHER_LAT || 48.14), lon: Number(env.WEATHER_LON || 11.58) },
   evccUrl: env.EVCC_URL === '' ? null : (env.EVCC_URL || 'http://localhost:7070'),
 };
 
@@ -49,7 +57,9 @@ const lastWritten = new Map(); // roomId -> { target, at }
 let house = null; // { mode, since, reason }
 let cache = loadCache();
 let lastCleanupDay = null;
-let outdoor = { temp: null, at: 0 }; // letzte Außentemperatur
+let outdoor = { temp: null, source: null, at: 0 }; // letzte Außentemperatur
+let femsWarned = false;
+let forecastTableWarned = false;
 let evccWarned = false;
 let missingColsWarned = false;
 let lastDailyStore = null; // Datum (Berlin), an dem die Tageswerte zuletzt gespeichert wurden
@@ -175,12 +185,36 @@ async function tick() {
   }
 
   // 4) Zusatzdaten für die Analyse (Fehler hier stören die Steuerung nicht)
-  if (cfg.weather && Date.now() - outdoor.at >= cfg.weather.everyMin * 60000) {
-    try {
-      outdoor = { temp: await readOutdoorTemp(cfg.weather), at: Date.now() };
-    } catch (e) {
-      outdoor.at = Date.now(); // nicht jede Minute neu versuchen
-      log('Außentemperatur nicht verfügbar:', e.message);
+  if (Date.now() - outdoor.at >= 15 * 60000) {
+    outdoor.at = Date.now(); // auch bei Fehler nicht jede Minute neu versuchen
+    let got = false;
+    if (cfg.femsRest) {
+      try {
+        const { row, raw } = await readFemsForecast(cfg.femsRest);
+        if (row.outdoor_c != null) { outdoor.temp = row.outdoor_c; outdoor.source = 'fems'; got = true; }
+        if (femsWarned) log('FEMS-Wetter wieder verfügbar');
+        femsWarned = false;
+        await safeDb('forecast', async () => {
+          try {
+            await db.insert('muc_forecast', [{ ts: now.toISOString(), source: 'fems', ...row, raw }]);
+          } catch (e) {
+            if (!/muc_forecast|PGRST205|42P01/.test(e.message)) throw e;
+            if (!forecastTableWarned) log('Hinweis: Tabelle muc_forecast fehlt – supabase/migration-004-prognose.sql ausführen');
+            forecastTableWarned = true;
+          }
+        });
+      } catch (e) {
+        if (!femsWarned) log('FEMS-Wetter/Prognose nicht verfügbar:', e.message);
+        femsWarned = true;
+      }
+    }
+    if (!got && cfg.weather) {
+      try {
+        outdoor.temp = await readOutdoorTemp(cfg.weather);
+        outdoor.source = 'open-meteo';
+      } catch (e) {
+        log('Außentemperatur nicht verfügbar:', e.message);
+      }
     }
   }
   let carW = null;
@@ -206,14 +240,22 @@ async function tick() {
       house_mode: house.mode,
       car_w: carW,
       outdoor_c: outdoor.temp,
+      outdoor_source: outdoor.source,
     };
     await safeDb('energy', async () => {
       try {
         await db.insert('muc_energy_readings', [row]);
       } catch (e) {
         // Analyse-Spalten noch nicht angelegt (Migration fehlt) → ohne sie speichern
-        if (!/car_w|outdoor_c|PGRST204/.test(e.message)) throw e;
-        const { car_w, outdoor_c, ...basic } = row;
+        if (!/car_w|outdoor_c|outdoor_source|PGRST204/.test(e.message)) throw e;
+        const { outdoor_source, ...withoutSource } = row;
+        try {
+          await db.insert('muc_energy_readings', [withoutSource]); // nur migration-004 fehlt
+          return;
+        } catch (e2) {
+          if (!/car_w|outdoor_c|PGRST204/.test(e2.message)) throw e2;
+        }
+        const { car_w, outdoor_c, ...basic } = withoutSource;
         await db.insert('muc_energy_readings', [basic]);
         if (!missingColsWarned) log('Hinweis: Spalten car_w/outdoor_c fehlen – supabase/migration-002-analyse.sql ausführen');
         missingColsWarned = true;
