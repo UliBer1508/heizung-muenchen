@@ -2,14 +2,14 @@
 
 PV-gesteuerte Wasser-Fußbodenheizung (Wärmepumpe) im Haus München.
 FENECON liefert PV-, Netz- und Batteriewerte, die App setzt pro Raum die
-Komforttemperatur im Loxone-Raumregler. Pilot: **KG Bad**.
+Komforttemperatur im Loxone-Raumregler. Aktiv: KG Bad, DG Bad, DG Schlafzimmer, DG Wohnen/Essen/Küche.
 
 | | |
 |---|---|
 | Collector | `collector/` – Node.js ≥ 20.6, ohne Zusatzpakete, läuft als NSSM-Dienst auf dem Mini-PC |
 | Web-App | `frontend/` – React + Vite, Hosting Vercel (Root Directory `frontend`) |
 | Datenbank | `supabase/schema.sql` – Tabellen `muc_*` im Venediger-Supabase-Projekt |
-| Doku | `doc/KONZEPT.md` (Wie & Warum), `doc/INBETRIEBNAHME.md` (Schritt für Schritt) |
+| Doku | `doc/STAND-UND-ROADMAP.md` (Stand, offene Phasen, Empfehlungen), `doc/KONZEPT.md` (Wie & Warum), `doc/INBETRIEBNAHME.md` (Schritt für Schritt) |
 
 ## Kurz
 
