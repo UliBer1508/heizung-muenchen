@@ -129,3 +129,22 @@ Lokal testen: `cd frontend` → `.env.local` aus `.env.example` → `npm install
 - Collector stoppen: `nssm stop HeizungMuenchen` → Loxone behält den letzten Wert;
   nach einem Miniserver-Neustart gilt der Standardwert 21 °C.
 - Ganz zurück: in Loxone die Verbindung `API_Boost_Bad → ϑch` löschen.
+
+---
+
+## 6. Update: Analyse (Phase 1)
+
+1. Supabase → SQL Editor → Inhalt von `supabase/migration-002-analyse.sql` → *Run*
+   (neue Spalten Auto-Ladeleistung und Außentemperatur, Einstellung Grundlast, Auswertungsfunktionen).
+2. Mini-PC:
+   ```powershell
+   cd C:\Users\ulibe\heizung-muenchen
+   git pull
+   C:\nssm\nssm.exe restart HeizungMuenchen
+   ```
+   Der Collector holt ab jetzt die Außentemperatur (Open-Meteo) und die Auto-Ladeleistung von evcc
+   (`http://localhost:7070`). Fällt eine Quelle aus, läuft die Heizungssteuerung normal weiter.
+3. App: Reiter **Analyse** → *Tag* (Energie, Heizstrom-Herkunft) und *Räume* (Kennzahlen je Raum).
+
+Hinweis: Der Heizstrom ist bis zur Messung an der Wärmepumpe eine Schätzung
+(Verbrauch − Auto − Grundlast). Die Grundlast ist unter *Einstellungen → Analyse* einstellbar.

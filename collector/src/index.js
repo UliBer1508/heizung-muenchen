@@ -7,11 +7,12 @@ import { fileURLToPath } from 'node:url';
 import { readFenecon } from './fenecon.js';
 import { LoxoneClient, readRoom } from './loxone.js';
 import { Db } from './db.js';
+import { readOutdoorTemp, readEvccChargePower } from './extras.js';
 import {
   DEFAULT_SETTINGS, averageEnergy, desiredHouseMode, applyHold, roomTarget, needsWrite, surplusW,
 } from './logic.js';
 
-const VERSION = '0.1.0';
+const VERSION = '0.2.0';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const stateDir = process.env.STATE_DIR || path.join(here, '..', 'state');
 const cacheFile = path.join(stateDir, 'cache.json');
@@ -33,6 +34,9 @@ const cfg = {
     password: env.LOXONE_PASSWORD,
   },
   supabase: { url: env.SUPABASE_URL, key: env.SUPABASE_SERVICE_ROLE_KEY },
+  // Analyse (optional)
+  weather: env.WEATHER === 'off' ? null : { lat: Number(env.WEATHER_LAT || 48.14), lon: Number(env.WEATHER_LON || 11.58), everyMin: 15 },
+  evccUrl: env.EVCC_URL === '' ? null : (env.EVCC_URL || 'http://localhost:7070'),
 };
 
 const log = (...a) => console.log(new Date().toISOString(), ...a);
@@ -45,6 +49,9 @@ const lastWritten = new Map(); // roomId -> { target, at }
 let house = null; // { mode, since, reason }
 let cache = loadCache();
 let lastCleanupDay = null;
+let outdoor = { temp: null, at: 0 }; // letzte Außentemperatur
+let evccWarned = false;
+let missingColsWarned = false;
 
 function loadCache() {
   try {
@@ -166,9 +173,29 @@ async function tick() {
     });
   }
 
-  // 4) Speichern
+  // 4) Zusatzdaten für die Analyse (Fehler hier stören die Steuerung nicht)
+  if (cfg.weather && Date.now() - outdoor.at >= cfg.weather.everyMin * 60000) {
+    try {
+      outdoor = { temp: await readOutdoorTemp(cfg.weather), at: Date.now() };
+    } catch (e) {
+      outdoor.at = Date.now(); // nicht jede Minute neu versuchen
+      log('Außentemperatur nicht verfügbar:', e.message);
+    }
+  }
+  let carW = null;
+  if (cfg.evccUrl) {
+    try {
+      carW = await readEvccChargePower({ url: cfg.evccUrl });
+      evccWarned = false;
+    } catch (e) {
+      if (!evccWarned) log('evcc nicht erreichbar (Auto-Ladeleistung fehlt in der Analyse):', e.message);
+      evccWarned = true;
+    }
+  }
+
+  // 5) Speichern
   if (latest) {
-    await safeDb('energy', () => db.insert('muc_energy_readings', [{
+    const row = {
       pv_w: latest.pvW,
       grid_w: latest.gridW,
       battery_w: latest.batteryW,
@@ -176,7 +203,21 @@ async function tick() {
       soc: latest.soc,
       surplus_w: energy ? surplusW(energy, settings) : null,
       house_mode: house.mode,
-    }]));
+      car_w: carW,
+      outdoor_c: outdoor.temp,
+    };
+    await safeDb('energy', async () => {
+      try {
+        await db.insert('muc_energy_readings', [row]);
+      } catch (e) {
+        // Analyse-Spalten noch nicht angelegt (Migration fehlt) → ohne sie speichern
+        if (!/car_w|outdoor_c|PGRST204/.test(e.message)) throw e;
+        const { car_w, outdoor_c, ...basic } = row;
+        await db.insert('muc_energy_readings', [basic]);
+        if (!missingColsWarned) log('Hinweis: Spalten car_w/outdoor_c fehlen – supabase/migration-002-analyse.sql ausführen');
+        missingColsWarned = true;
+      }
+    });
   }
   if (roomRows.length) await safeDb('rooms', () => db.insert('muc_room_readings', roomRows));
 
@@ -199,7 +240,7 @@ async function tick() {
     }]));
   }
 
-  // 5) Einmal täglich alte Messwerte löschen
+  // 6) Einmal täglich alte Messwerte löschen
   const day = now.toISOString().slice(0, 10);
   if (lastCleanupDay !== day) {
     lastCleanupDay = day;

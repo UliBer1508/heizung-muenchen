@@ -19,6 +19,9 @@ const HOUSE_FIELDS = [
     { k: 'full_soc', l: '„Voll“ ab', unit: '% SoC', step: 1 },
     { k: 'full_export_w', l: 'und Einspeisung ab', unit: 'W', step: 500 },
   ] },
+  { group: 'Analyse', fields: [
+    { k: 'baseload_w', l: 'Grundlast Haus (ohne Heizung/Auto)', unit: 'W', step: 50 },
+  ] },
 ];
 
 const ROOM_FIELDS = [

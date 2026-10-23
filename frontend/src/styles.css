@@ -166,6 +166,42 @@ select, input[type='number'], input[type='time'], input[type='email'], input[typ
 .override-toggle { align-self: flex-start; padding-left: 0; color: var(--muted); border-color: transparent; }
 .override-actions { display: flex; gap: 8px; justify-content: flex-end; }
 
+
+/* ---------- Analyse ---------- */
+.analyse-bar { justify-content: space-between; }
+.seg-2 { display: inline-grid; grid-template-columns: 1fr 1fr; min-width: 180px; }
+.datenav { display: flex; align-items: center; gap: 6px; }
+.datenav .btn { padding: 6px 12px; }
+.datenav-label { position: relative; padding: 7px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); font-variant-numeric: tabular-nums; cursor: pointer; white-space: nowrap; }
+.datenav-label input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+.kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.srcbar { display: flex; height: 14px; border-radius: 7px; overflow: hidden; background: var(--neutral-bg); gap: 2px; }
+.srcbar span { display: block; height: 100%; }
+.srclegend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 8px; font-size: 13px; }
+.srclegend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.explain { margin: 10px 0 0; }
+.notice-warn { background: var(--sun-bg); color: var(--sun); padding: 10px 14px; border-radius: 10px; font-size: 14px; }
+.roomstats { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+.roomstat { text-align: left; display: flex; flex-direction: column; gap: 10px; cursor: pointer; font: inherit; color: inherit; }
+.roomstat.selected { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
+.roomstat-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.small-name { font-size: 17px; }
+.roomstat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.mid { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.explain-card ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+@media (max-width: 640px) {
+  .analyse-bar { flex-direction: column; align-items: stretch; gap: 8px; }
+  .seg-2 { display: grid; width: 100%; }
+  .datenav { justify-content: space-between; }
+  .datenav-label { flex: 1; text-align: center; }
+  .kpis { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .kpis .tile.accent { grid-column: auto; }
+  .roomstats { grid-template-columns: 1fr; }
+  .roomstat-grid { gap: 6px; }
+  .mid { font-size: 14px; }
+  .srclegend { font-size: 12px; flex-direction: column; }
+}
+
 /* ---------- Handy ---------- */
 @media (max-width: 640px) {
   .topbar {

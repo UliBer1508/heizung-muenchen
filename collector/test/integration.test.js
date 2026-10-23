@@ -103,6 +103,7 @@ test('Ein Durchlauf: Überschuss → KG Bad bekommt PV-Sollwert', async () => {
         FENECON_HOST: '127.0.0.1', FENECON_PORT: String(fems.address().port),
         LOXONE_HOST: `127.0.0.1:${lox.server.address().port}`, LOXONE_USER: 'api', LOXONE_PASSWORD: 'geheim',
         SUPABASE_URL: '', SUPABASE_SERVICE_ROLE_KEY: '', FORCE_DRY_RUN: '0',
+        WEATHER: 'off', EVCC_URL: '',
       },
     });
     let s = '';
@@ -117,4 +118,11 @@ test('Ein Durchlauf: Überschuss → KG Bad bekommt PV-Sollwert', async () => {
   assert.ok(lox.calls.some((c) => c.name === 'API_Boost_Bad' && c.cmd === '23.0'), out);
   const cache = JSON.parse(fs.readFileSync(path.join(stateDir, 'cache.json'), 'utf8'));
   assert.equal(cache.house.mode, 'PV_LADEN');
+});
+
+test('evcc-Ladeleistung aus /api/state (alt und neu)', async () => {
+  const { evccChargePowerFromState } = await import('../src/extras.js');
+  assert.equal(evccChargePowerFromState({ loadpoints: [{ chargePower: 4140.4 }, { chargePower: 0 }] }), 4140);
+  assert.equal(evccChargePowerFromState({ result: { loadpoints: [{ chargePower: 11000 }] } }), 11000);
+  assert.throws(() => evccChargePowerFromState({}), /Ladepunkte/);
 });
