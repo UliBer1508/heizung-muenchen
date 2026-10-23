@@ -64,6 +64,7 @@ function RoomCard({ room, reading, reload }) {
   const [hours, setHours] = useState(2);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
+  const [open, setOpen] = useState(false);
   const overrideOn = room.override_until && new Date(room.override_until) > new Date();
   const m = modeMeta(reading?.mode);
 
@@ -95,10 +96,10 @@ function RoomCard({ room, reading, reload }) {
           <div className="big">{fmtT(reading?.temp)}</div>
         </div>
         <div>
-          <div className="eyebrow">Soll (Loxone)</div>
+          <div className="eyebrow">Soll</div>
           <div className="big">{fmtT(reading?.setpoint)}</div>
           {reading?.target != null && Number(reading.target) !== Number(reading.setpoint) && (
-            <div className="muted small">Ziel der App: {fmtT(reading.target)}</div>
+            <div className="muted small">Ziel {fmtT(reading.target)}</div>
           )}
         </div>
         <div>
@@ -113,27 +114,33 @@ function RoomCard({ room, reading, reload }) {
             <span>Manuell <strong>{fmtT(room.override_temp)}</strong> bis {fmtTime(room.override_until)}</span>
             <button className="btn" onClick={stop} disabled={busy}>Beenden</button>
           </div>
+        ) : !open ? (
+          <button className="btn ghost override-toggle" onClick={() => { setTemp(Number(reading?.target ?? room.temp_normal)); setOpen(true); }}>
+            Manuell übersteuern …
+          </button>
         ) : (
           <>
-            <div className="eyebrow">Manuell übersteuern</div>
             <div className="override-row">
               <div className="stepper">
                 <button className="btn" onClick={() => setTemp((t) => Math.max(5, +(t - 0.5).toFixed(1)))} aria-label="kälter">−</button>
                 <span className="stepper-val">{fmtT(temp)}</span>
                 <button className="btn" onClick={() => setTemp((t) => Math.min(26, +(t + 0.5).toFixed(1)))} aria-label="wärmer">+</button>
               </div>
-              <select value={hours} onChange={(e) => setHours(Number(e.target.value))}>
+              <select value={hours} onChange={(e) => setHours(Number(e.target.value))} aria-label="Dauer">
                 {[1, 2, 4, 8, 24].map((h) => <option key={h} value={h}>für {h} h</option>)}
               </select>
-              <button className="btn primary" onClick={start} disabled={busy}>Setzen</button>
             </div>
+            <div className="override-actions">
+              <button className="btn ghost" onClick={() => setOpen(false)} disabled={busy}>Abbrechen</button>
+              <button className="btn primary" onClick={async () => { await start(); setOpen(false); }} disabled={busy}>Setzen</button>
+            </div>
+            <div className="muted small">Wird innerhalb einer Minute in Loxone übernommen.</div>
           </>
         )}
         {err && <div className="alert">{err}</div>}
-        <div className="muted small">Änderungen übernimmt der Collector innerhalb einer Minute.</div>
       </div>
       <div className="room-temps muted small">
-        Nacht {fmtT(room.temp_night)} · Normal {fmtT(room.temp_normal)} · PV {fmtT(room.temp_pv)} · Batterie voll {fmtT(room.temp_full)}
+        Nacht {fmtT(room.temp_night)} · Normal {fmtT(room.temp_normal)} · PV {fmtT(room.temp_pv)} · Voll {fmtT(room.temp_full)}
       </div>
     </section>
   );

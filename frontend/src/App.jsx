@@ -5,12 +5,27 @@ import History from './History.jsx';
 import Settings from './Settings.jsx';
 import Log from './Log.jsx';
 
+const ICONS = {
+  overview: <path d="M3 11.5 12 4l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" />,
+  history: <path d="M4 19h16M6 16l4-5 3 3 5-7" />,
+  log: <path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01" />,
+  settings: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></>,
+};
+
 const TABS = [
   { id: 'overview', label: 'Übersicht' },
   { id: 'history', label: 'Verlauf' },
   { id: 'log', label: 'Protokoll' },
   { id: 'settings', label: 'Einstellungen' },
 ];
+
+function TabIcon({ id }) {
+  return (
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      {ICONS[id]}
+    </svg>
+  );
+}
 
 function Login() {
   const [email, setEmail] = useState('');
@@ -29,7 +44,7 @@ function Login() {
     <div className="login">
       <form className="card login-card" onSubmit={submit}>
         <div className="brand">
-          <span className="brand-mark" aria-hidden>◐</span>
+          <img className="brand-mark" src="/icon-192.png" alt="" />
           <div>
             <div className="brand-title">Heizung München</div>
             <div className="muted small">PV-gesteuerte Fußbodenheizung</div>
@@ -77,7 +92,10 @@ export function useLiveData(intervalMs = 30000) {
   useEffect(() => {
     load();
     const t = setInterval(load, intervalMs);
-    return () => clearInterval(t);
+    // App am Handy wieder geöffnet → sofort aktualisieren
+    const onVisible = () => { if (document.visibilityState === 'visible') load(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVisible); };
   }, [load, intervalMs]);
   return { data, error, reload: load };
 }
@@ -89,13 +107,15 @@ function Shell({ session }) {
     <div className="app">
       <header className="topbar">
         <div className="brand">
-          <span className="brand-mark" aria-hidden>◐</span>
+          <img className="brand-mark" src="/icon-192.png" alt="" />
           <div className="brand-title">Heizung München</div>
         </div>
         <nav className="tabs" role="tablist">
           {TABS.map((t) => (
-            <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? 'tab active' : 'tab'} onClick={() => setTab(t.id)}>
-              {t.label}
+            <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? 'tab active' : 'tab'}
+              onClick={() => { setTab(t.id); window.scrollTo(0, 0); }}>
+              <TabIcon id={t.id} />
+              <span>{t.label}</span>
             </button>
           ))}
         </nav>
