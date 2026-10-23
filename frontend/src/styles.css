@@ -202,6 +202,26 @@ select, input[type='number'], input[type='time'], input[type='email'], input[typ
   .srclegend { font-size: 12px; flex-direction: column; }
 }
 
+/* ---------- Analyse: Fragen ---------- */
+.kpis-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.insights { display: flex; flex-direction: column; gap: 8px; }
+.insight { border-radius: 10px; padding: 10px 12px; border-left: 4px solid; }
+.insight-title { font-weight: 600; margin-bottom: 2px; }
+.insight.tone-rose { background: var(--rose-bg); border-color: var(--rose); }
+.insight.tone-sun { background: var(--sun-bg); border-color: var(--sun); }
+.insight.tone-cool { background: var(--cool-bg); border-color: var(--cool); }
+.insight.tone-green { background: var(--green-bg); border-color: var(--green); }
+.qsec { display: flex; flex-direction: column; gap: 12px; }
+.qsec-head { display: flex; gap: 12px; align-items: center; }
+.qsec-nr { width: 30px; height: 30px; border-radius: 50%; background: var(--ink); color: var(--bg); display: grid; place-items: center; font-weight: 600; flex: none; }
+.qsec-head .chart-title { margin-bottom: 0; }
+.facts { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 14px; }
+.ptable { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+.ptable th { text-align: left; font-weight: 500; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line); padding: 6px 4px; }
+.ptable td { padding: 6px 4px; border-bottom: 1px solid var(--line); }
+.ptable td:not(:first-child), .ptable th:not(:first-child) { text-align: right; }
+@media (max-width: 640px) { .kpis-4 { grid-template-columns: 1fr 1fr; } .facts { font-size: 13px; } }
+
 /* ---------- Handy ---------- */
 @media (max-width: 640px) {
   .topbar {

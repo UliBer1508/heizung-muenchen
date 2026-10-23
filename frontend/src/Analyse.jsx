@@ -91,86 +91,224 @@ const xAxis = (
 );
 
 /* ------------------------------ Tag ------------------------------ */
+// Farben nach Bedeutung: Herkunft (Sonne/Batterie/Netz) und Verbraucher
+const F = {
+  sun: '#d9a400', bat: '#1d6f8c', grid: '#b4234a',
+  house: '#a8a29e', heat: '#c2410c', car: '#64748b', batIn: '#5aa9c4', feed: '#16a34a',
+};
+const PERIODS = [
+  { k: 'n1', label: 'Nacht 0–6', from: 0, to: 6 },
+  { k: 'mo', label: 'Morgen 6–9', from: 6, to: 9 },
+  { k: 'day', label: 'Tag 9–16', from: 9, to: 16 },
+  { k: 'ev', label: 'Abend 16–20', from: 16, to: 20 },
+  { k: 'n2', label: 'Nacht 20–24', from: 20, to: 24 },
+];
+
+// Energiefluss je 15-Minuten-Block (Leistungen in kW)
+function flows(r) {
+  const kw = (w) => Math.max(0, Number(w) || 0) / 1000;
+  const c = kw(r.consumption_w); const gi = kw(r.grid_in_w); const bo = kw(r.bat_out_w);
+  const bi = kw(r.bat_in_w); const go = kw(r.grid_out_w); const pv = kw(r.pv_w);
+  const car = Math.min(kw(r.car_w), c);
+  const heat = Math.min(kw(r.heat_w), Math.max(0, c - car));
+  const house = Math.max(0, c - car - heat);
+  const pvDirect = Math.max(0, c - gi - bo);
+  const fs = c > 0 ? { sun: pvDirect / c, bat: bo / c, grid: gi / c } : { sun: 0, bat: 0, grid: 0 };
+  const split = (x) => ({ sun: x * fs.sun, bat: x * fs.bat, grid: x * fs.grid });
+  return {
+    h: hourOf(r.bucket), pv, c, gi, go, bi, bo, soc: r.soc, out: n(r.outdoor_c),
+    heat, car, house,
+    heatS: split(heat), carS: split(car), houseS: split(house),
+    pvHouse: house * fs.sun, pvHeat: heat * fs.sun, pvCar: car * fs.sun, pvBat: Math.min(bi, pv), pvFeed: go,
+  };
+}
+
+const sumBy = (rows, f) => rows.reduce((s, r) => s + f(r) * 0.25, 0); // kW × 0,25 h = kWh
+
+function Insight({ tone, title, children }) {
+  return (
+    <div className={`insight tone-${tone}`}>
+      <div className="insight-title">{title}</div>
+      <div className="small">{children}</div>
+    </div>
+  );
+}
+
+function Section({ nr, title, question, children }) {
+  return (
+    <section className="card qsec">
+      <div className="qsec-head">
+        <span className="qsec-nr">{nr}</span>
+        <div>
+          <div className="chart-title">{title}</div>
+          <div className="muted small">{question}</div>
+        </div>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+const tip = { labelFormatter: (h) => `${hm(h)} Uhr`, formatter: (v) => `${Number(v).toFixed(2)} kW` };
+
 function DayView({ date, settings }) {
   const k = useRpc('muc_day_kpis', { p_date: date }, [date]);
   const e = useRpc('muc_day_energy', { p_date: date }, [date]);
   const kp = k.data?.[0];
-  const rows = useMemo(() => (e.data || []).map((r) => ({
-    h: hourOf(r.bucket),
-    pv: r.pv_w / 1000, use: r.consumption_w / 1000, heat: r.heat_w / 1000, car: r.car_w / 1000,
-    grid: r.grid_in_w / 1000, soc: r.soc, out: n(r.outdoor_c),
+  const rows = useMemo(() => (e.data || []).map(flows).map((f) => ({
+    ...f,
+    // Diagrammreihen
+    hSun: f.heatS.sun, hBat: f.heatS.bat, hGrid: f.heatS.grid,
+    batPlus: f.bi, batMinus: -f.bo,
   })), [e.data]);
 
   if (k.error || e.error) return <div className="alert">{k.error || e.error}</div>;
   if (k.loading || e.loading) return <div className="muted">Lade Auswertung …</div>;
-  if (!kp || kp.data_hours == null) return <div className="card muted">Für diesen Tag gibt es keine Messwerte.</div>;
+  if (!kp || kp.data_hours == null || rows.length === 0) return <div className="card muted">Für diesen Tag gibt es keine Messwerte.</div>;
 
-  const nightShare = kp.grid_in_kwh > 0 ? Math.round((100 * kp.grid_in_night_kwh) / kp.grid_in_kwh) : 0;
-  const tiles = [
-    { l: 'Netzbezug', v: kwh(kp.grid_in_kwh), s: `davon nachts ${kwh(kp.grid_in_night_kwh)} (${nightShare} %)`, warn: kp.grid_in_night_kwh > 3 },
-    { l: 'PV-Erzeugung', v: kwh(kp.pv_kwh), s: `Eigenverbrauch ${num(kp.self_use_pct, 0, ' %')}` },
-    { l: 'Autarkie', v: num(kp.autarky_pct, 0, ' %'), s: `Einspeisung ${kwh(kp.grid_out_kwh)}` },
-    { l: 'Heizstrom (geschätzt)', v: kwh(kp.heat_kwh), s: `Auto ${kp.car_measured ? kwh(kp.car_kwh) : 'nicht gemessen'}`, accent: true },
-    { l: 'Batterie leer', v: num(kp.bat_empty_h, 1, ' h'), s: kp.bat_empty_from ? `erstmals ${hm(hourOf(kp.bat_empty_from))} Uhr` : `min. ${kp.soc_min} %`, warn: kp.bat_empty_h > 2 },
-    { l: 'Außentemperatur', v: kp.outdoor_avg != null ? `Ø ${num(kp.outdoor_avg, 1, ' °C')}` : '–', s: kp.outdoor_min != null ? `${num(kp.outdoor_min, 1)} … ${num(kp.outdoor_max, 1)} °C` : 'noch nicht erfasst' },
-  ];
+  // ---- Summen
+  const T = {
+    pv: sumBy(rows, (r) => r.pv), use: sumBy(rows, (r) => r.c), gridIn: sumBy(rows, (r) => r.gi), feed: sumBy(rows, (r) => r.go),
+    pvHouse: sumBy(rows, (r) => r.pvHouse), pvHeat: sumBy(rows, (r) => r.pvHeat), pvCar: sumBy(rows, (r) => r.pvCar), pvBat: sumBy(rows, (r) => r.pvBat),
+    batOut: sumBy(rows, (r) => r.bo), batHouse: sumBy(rows, (r) => r.houseS.bat), batHeat: sumBy(rows, (r) => r.heatS.bat), batCar: sumBy(rows, (r) => r.carS.bat),
+    heat: sumBy(rows, (r) => r.heat), heatSun: sumBy(rows, (r) => r.heatS.sun), heatBat: sumBy(rows, (r) => r.heatS.bat), heatGrid: sumBy(rows, (r) => r.heatS.grid),
+    car: sumBy(rows, (r) => r.car), carSun: sumBy(rows, (r) => r.carS.sun), carBat: sumBy(rows, (r) => r.carS.bat), carGrid: sumBy(rows, (r) => r.carS.grid),
+  };
+  const per = PERIODS.map((p) => {
+    const rr = rows.filter((r) => r.h >= p.from && r.h < p.to);
+    return { ...p, heat: sumBy(rr, (r) => r.heat), grid: sumBy(rr, (r) => r.heatS.grid), bat: sumBy(rr, (r) => r.heatS.bat), sun: sumBy(rr, (r) => r.heatS.sun), hasData: rr.length > 0 };
+  });
+  const socMax = Math.max(...rows.map((r) => r.soc ?? 0));
+  const fullAt = rows.find((r) => r.soc >= 95)?.h;
+  const emptyAt = rows.filter((r) => r.h >= 12).find((r) => r.soc <= 5)?.h;
+  const sunOutsideDay = per.filter((p) => p.k !== 'day').reduce((s, p) => s + p.heat, 0);
+  const heatDay = per.find((p) => p.k === 'day').heat;
+
+  // ---- Erkenntnisse in Klartext
+  const ins = [];
+  if (T.heatGrid >= 1) {
+    const nightGrid = per.filter((p) => p.k !== 'day').reduce((s, p) => s + p.grid, 0);
+    ins.push({ tone: 'rose', title: `Wärmepumpe: ${kwh(T.heatGrid)} aus dem Netz`, text: `${Math.round((100 * nightGrid) / Math.max(T.heatGrid, 0.01))} % davon außerhalb der Sonnenstunden. Empfehlung: Heizzeit und Warmwasser in den Tag (ca. 11–16 Uhr) verschieben, nachts tiefer absenken.` });
+  }
+  if (heatDay < sunOutsideDay * 0.5 && T.pv > 5) {
+    ins.push({ tone: 'sun', title: 'Geheizt wird vor allem, wenn keine Sonne scheint', text: `Tagsüber (9–16 Uhr) ${kwh(heatDay)}, außerhalb ${kwh(sunOutsideDay)}. Der Estrich könnte mittags „vorgeladen“ werden.` });
+  }
+  if (T.batCar >= 0.3) ins.push({ tone: 'rose', title: `Auto hat ${kwh(T.batCar)} aus der Hausbatterie geladen`, text: 'Diese Energie fehlt abends. Empfehlung: in evcc die Entladung der Hausbatterie für das Fahrzeug sperren – Auto nur mit Überschuss.' });
+  if (T.carGrid >= 0.3) ins.push({ tone: 'sun', title: `Auto hat ${kwh(T.carGrid)} aus dem Netz geladen`, text: 'Im PV-Modus sollte das nicht vorkommen – Mindestladestrom (6 A ≈ 4,1 kW) prüfen.' });
+  if (emptyAt != null) ins.push({ tone: 'cool', title: `Batterie leer ab ${hm(emptyAt)} Uhr`, text: `Davon gingen ${kwh(T.batHeat)} an die Heizung, ${kwh(T.batHouse)} an das Haus${T.batCar > 0.05 ? `, ${kwh(T.batCar)} an das Auto` : ''}.` });
+  if (T.feed >= 1 && T.heatGrid >= 1) ins.push({ tone: 'green', title: `${kwh(T.feed)} eingespeist`, text: 'Gleichzeitig wurde aus dem Netz geheizt – diese Energie hätte mittags als Wärme gespeichert werden können.' });
+  if (ins.length === 0) ins.push({ tone: 'green', title: 'Keine Auffälligkeiten', text: 'An diesem Tag lief alles weitgehend mit eigenem Strom.' });
 
   return (
     <div className="stack">
-      {kp.data_hours < 20 && <div className="notice-warn">Unvollständiger Tag: nur {num(kp.data_hours, 1)} Stunden Messwerte.</div>}
-      <section className="kpis">
-        {tiles.map((t) => (
-          <div key={t.l} className={`card tile ${t.accent ? 'accent' : ''}`}>
-            <div className="eyebrow">{t.l}</div>
-            <div className={`tile-value ${t.warn ? 'warn-text' : ''}`}>{t.v}</div>
-            <div className="muted small">{t.s}</div>
-          </div>
-        ))}
+      {kp.data_hours < 20 && <div className="notice-warn">Unvollständiger Tag: nur {num(kp.data_hours, 1)} Stunden Messwerte – Summen gelten bis jetzt.</div>}
+
+      <section className="kpis kpis-4">
+        <div className="card tile"><div className="eyebrow">PV</div><div className="tile-value">{kwh(T.pv)}</div><div className="muted small">eingespeist {kwh(T.feed)}</div></div>
+        <div className="card tile"><div className="eyebrow">Verbrauch</div><div className="tile-value">{kwh(T.use)}</div><div className="muted small">Autarkie {num(kp.autarky_pct, 0, ' %')}</div></div>
+        <div className="card tile"><div className="eyebrow">Netzbezug</div><div className={`tile-value ${T.gridIn > 3 ? 'warn-text' : ''}`}>{kwh(T.gridIn)}</div><div className="muted small">davon Heizung {kwh(T.heatGrid)}</div></div>
+        <div className="card tile"><div className="eyebrow">Außen</div><div className="tile-value">{kp.outdoor_avg != null ? `Ø ${num(kp.outdoor_avg, 1, ' °C')}` : '–'}</div><div className="muted small">{kp.outdoor_min != null ? `${num(kp.outdoor_min, 1)} … ${num(kp.outdoor_max, 1)} °C` : 'noch nicht erfasst'}</div></div>
       </section>
 
       <section className="card">
-        <div className="chart-title">Woher kam der Heizstrom?</div>
-        <SourceBar parts={SRC.map((s) => ({ ...s, v: n(kp[`heat_${s.k}_kwh`]) }))} />
-        <p className="muted small explain">
-          Geschätzt: Hausverbrauch − Auto − Grundlast ({kp.baseload_w} W). Genaue Werte, sobald die Wärmepumpe selbst gemessen wird.
-          {!kp.car_measured && ' An diesem Tag wurde das Auto noch nicht erfasst – Ladestrom steckt in der Schätzung.'}
-        </p>
+        <div className="chart-title">Das Wichtigste</div>
+        <div className="insights">{ins.map((i) => <Insight key={i.title} tone={i.tone} title={i.title}>{i.text}</Insight>)}</div>
       </section>
 
-      <section className="card chart">
-        <div className="chart-title">Strom über den Tag <span className="muted small">(Nacht hinterlegt)</span></div>
-        <ResponsiveContainer width="100%" height={270}>
-          <ComposedChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: -14 }}>
+      <Section nr="1" title="PV-Anlage" question="Wohin ging der Sonnenstrom?">
+        <SourceBar parts={[
+          { k: 'h', label: 'Haus', color: F.house, v: T.pvHouse }, { k: 'w', label: 'Heizung', color: F.heat, v: T.pvHeat },
+          { k: 'c', label: 'Auto', color: F.car, v: T.pvCar }, { k: 'b', label: 'Batterie geladen', color: F.batIn, v: T.pvBat },
+          { k: 'f', label: 'Eingespeist', color: F.feed, v: T.feed },
+        ]} />
+        <ResponsiveContainer width="100%" height={220}>
+          <ComposedChart data={rows} margin={{ top: 12, right: 6, bottom: 0, left: -14 }}>
             <CartesianGrid stroke="var(--grid)" vertical={false} />
             {xAxis}
-            <YAxis yAxisId="a" tickFormatter={(v) => `${v}`} stroke="var(--muted)" fontSize={12} unit=" kW" width={58} />
-            {nightAreas(settings)}
-            <Tooltip labelFormatter={(h) => `${hm(h)} Uhr`} formatter={(v) => `${Number(v).toFixed(2)} kW`} />
-            <Legend wrapperStyle={{ fontSize: 12 }} />
-            <Area yAxisId="a" dataKey="pv" name="PV" stroke={C.pv} fill={C.pv} fillOpacity={0.2} strokeWidth={1.5} isAnimationActive={false} />
-            <Area yAxisId="a" dataKey="heat" name="Heizung (geschätzt)" stroke={C.heat} fill={C.heat} fillOpacity={0.25} strokeWidth={1.5} isAnimationActive={false} />
-            <Line yAxisId="a" dataKey="car" name="Auto" stroke={C.car} strokeDasharray="4 3" dot={false} strokeWidth={1.5} isAnimationActive={false} />
-            <Line yAxisId="a" dataKey="grid" name="Netzbezug" stroke={C.grid} dot={false} strokeWidth={2} isAnimationActive={false} />
+            <YAxis yAxisId="a" stroke="var(--muted)" fontSize={12} unit=" kW" width={56} />
+            <Tooltip {...tip} />
+            <Area yAxisId="a" stackId="pv" dataKey="pvHouse" name="Haus" stroke="none" fill={F.house} fillOpacity={0.9} isAnimationActive={false} />
+            <Area yAxisId="a" stackId="pv" dataKey="pvHeat" name="Heizung" stroke="none" fill={F.heat} fillOpacity={0.9} isAnimationActive={false} />
+            <Area yAxisId="a" stackId="pv" dataKey="pvCar" name="Auto" stroke="none" fill={F.car} fillOpacity={0.9} isAnimationActive={false} />
+            <Area yAxisId="a" stackId="pv" dataKey="pvBat" name="Batterie geladen" stroke="none" fill={F.batIn} fillOpacity={0.9} isAnimationActive={false} />
+            <Area yAxisId="a" stackId="pv" dataKey="pvFeed" name="Eingespeist" stroke="none" fill={F.feed} fillOpacity={0.9} isAnimationActive={false} />
           </ComposedChart>
         </ResponsiveContainer>
-      </section>
+      </Section>
 
-      <section className="card chart">
-        <div className="chart-title">Batterie und Außentemperatur</div>
-        <ResponsiveContainer width="100%" height={210}>
-          <ComposedChart data={rows} margin={{ top: 8, right: 4, bottom: 0, left: -6 }}>
+      <Section nr="2" title="Batterie" question="Wann wurde sie geladen – und wer hat sie geleert?">
+        <div className="facts">
+          <span>max. <strong>{socMax} %</strong>{fullAt != null && <> · voll um <strong>{hm(fullAt)}</strong></>}</span>
+          <span>{emptyAt != null ? <>leer ab <strong>{hm(emptyAt)}</strong></> : <>min. <strong>{kp.soc_min} %</strong></>}</span>
+          <span>geladen <strong>{kwh(T.pvBat)}</strong> · entladen <strong>{kwh(T.batOut)}</strong></span>
+        </div>
+        <div className="eyebrow">Entladen an</div>
+        <SourceBar parts={[
+          { k: 'w', label: 'Heizung', color: F.heat, v: T.batHeat }, { k: 'h', label: 'Haus', color: F.house, v: T.batHouse },
+          { k: 'c', label: 'Auto', color: F.car, v: T.batCar },
+        ]} />
+        <ResponsiveContainer width="100%" height={220}>
+          <ComposedChart data={rows} margin={{ top: 12, right: 6, bottom: 0, left: -14 }}>
             <CartesianGrid stroke="var(--grid)" vertical={false} />
             {xAxis}
-            <YAxis yAxisId="a" domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} unit="%" stroke="var(--muted)" fontSize={12} width={50} />
-            <YAxis yAxisId="t" orientation="right" unit="°" stroke="var(--muted)" fontSize={12} width={36} domain={['dataMin - 2', 'dataMax + 2']} allowDecimals={false} />
+            <YAxis yAxisId="a" stroke="var(--muted)" fontSize={12} unit=" kW" width={56} />
+            <YAxis yAxisId="s" orientation="right" domain={[0, 100]} ticks={[0, 50, 100]} unit="%" stroke={F.bat} fontSize={12} width={40} />
             {nightAreas(settings)}
-            <Tooltip labelFormatter={(h) => `${hm(h)} Uhr`} formatter={(v, name) => (name === 'Batterie' ? `${v} %` : `${v} °C`)} />
-            <Legend wrapperStyle={{ fontSize: 12 }} />
-            <Area yAxisId="a" dataKey="soc" name="Batterie" stroke={C.bat} fill={C.bat} fillOpacity={0.12} strokeWidth={1.5} isAnimationActive={false} />
-            <Line yAxisId="t" dataKey="out" name="Außen" stroke={C.outdoor} dot={false} strokeWidth={1.5} isAnimationActive={false} connectNulls />
+            <Tooltip labelFormatter={tip.labelFormatter} formatter={(v, name) => (name === 'Ladezustand' ? `${v} %` : `${Math.abs(v).toFixed(2)} kW`)} />
+            <Area yAxisId="a" dataKey="batPlus" name="Laden" stroke="none" fill={F.feed} fillOpacity={0.5} isAnimationActive={false} />
+            <Area yAxisId="a" dataKey="batMinus" name="Entladen" stroke="none" fill={F.grid} fillOpacity={0.45} isAnimationActive={false} />
+            <Line yAxisId="s" dataKey="soc" name="Ladezustand" stroke={F.bat} strokeWidth={2} dot={false} isAnimationActive={false} />
           </ComposedChart>
         </ResponsiveContainer>
-      </section>
+        <div className="muted small">Grün = laden, rot = entladen, Linie = Ladezustand. Nacht hinterlegt.</div>
+      </Section>
+
+      <Section nr="3" title="Wärmepumpe" question="Wann wurde geheizt – und womit?">
+        <SourceBar parts={[
+          { k: 's', label: 'Sonne', color: F.sun, v: T.heatSun }, { k: 'b', label: 'Batterie', color: F.bat, v: T.heatBat },
+          { k: 'g', label: 'Netz', color: F.grid, v: T.heatGrid },
+        ]} />
+        <ResponsiveContainer width="100%" height={220}>
+          <ComposedChart data={rows} margin={{ top: 12, right: 6, bottom: 0, left: -14 }}>
+            <CartesianGrid stroke="var(--grid)" vertical={false} />
+            {xAxis}
+            <YAxis yAxisId="a" stroke="var(--muted)" fontSize={12} unit=" kW" width={56} />
+            {nightAreas(settings)}
+            <Tooltip {...tip} />
+            <Area yAxisId="a" stackId="h" dataKey="hSun" name="aus Sonne" stroke="none" fill={F.sun} fillOpacity={0.85} isAnimationActive={false} />
+            <Area yAxisId="a" stackId="h" dataKey="hBat" name="aus Batterie" stroke="none" fill={F.bat} fillOpacity={0.85} isAnimationActive={false} />
+            <Area yAxisId="a" stackId="h" dataKey="hGrid" name="aus Netz" stroke="none" fill={F.grid} fillOpacity={0.85} isAnimationActive={false} />
+            <Line yAxisId="a" dataKey="pv" name="PV-Erzeugung" stroke={F.sun} strokeDasharray="4 3" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+          </ComposedChart>
+        </ResponsiveContainer>
+        <table className="ptable">
+          <thead><tr><th>Zeitraum</th><th>Heizstrom</th><th>davon Netz</th></tr></thead>
+          <tbody>
+            {per.map((p) => (
+              <tr key={p.k} className={p.hasData ? '' : 'muted'}>
+                <td>{p.label}</td>
+                <td>{p.hasData ? kwh(p.heat) : '–'}</td>
+                <td className={p.grid >= 0.5 ? 'warn-text' : ''}>{p.hasData ? kwh(p.grid) : '–'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div className="muted small">Gestrichelt = verfügbare PV-Leistung. Heizstrom geschätzt (Verbrauch − Auto − Grundlast {kp.baseload_w} W), bis die Wärmepumpe selbst gemessen wird.</div>
+      </Section>
+
+      <Section nr="4" title="Auto" question="Woher kam der Ladestrom?">
+        {!kp.car_measured ? <div className="muted small">An diesem Tag wurde die Auto-Ladeleistung noch nicht erfasst.</div>
+          : T.car < 0.1 ? <div className="muted small">Heute nicht geladen.</div> : (
+            <>
+              <div className="facts"><span>geladen <strong>{kwh(T.car)}</strong></span></div>
+              <SourceBar parts={[
+                { k: 's', label: 'Sonne', color: F.sun, v: T.carSun }, { k: 'b', label: 'Hausbatterie', color: F.bat, v: T.carBat },
+                { k: 'g', label: 'Netz', color: F.grid, v: T.carGrid },
+              ]} />
+              <div className="muted small">Ziel: 100 % Sonne. Anteil „Hausbatterie“ fehlt abends für Haus und Heizung.</div>
+            </>
+          )}
+      </Section>
     </div>
   );
 }
