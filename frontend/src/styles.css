@@ -170,6 +170,7 @@ select, input[type='number'], input[type='time'], input[type='email'], input[typ
 /* ---------- Analyse ---------- */
 .analyse-bar { justify-content: space-between; }
 .seg-2 { display: inline-grid; grid-template-columns: 1fr 1fr; min-width: 180px; }
+.seg-4 { display: inline-grid; grid-template-columns: repeat(4, 1fr); min-width: 300px; }
 .datenav { display: flex; align-items: center; gap: 6px; }
 .datenav .btn { padding: 6px 12px; }
 .datenav-label { position: relative; padding: 7px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); font-variant-numeric: tabular-nums; cursor: pointer; white-space: nowrap; }
@@ -191,7 +192,9 @@ select, input[type='number'], input[type='time'], input[type='email'], input[typ
 .explain-card ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
 @media (max-width: 640px) {
   .analyse-bar { flex-direction: column; align-items: stretch; gap: 8px; }
-  .seg-2 { display: grid; width: 100%; }
+  .seg-2, .seg-4 { display: grid; width: 100%; min-width: 0; }
+  .seg-2 { grid-template-columns: 1fr 1fr; }
+  .seg-4 { grid-template-columns: repeat(4, 1fr); }
   .datenav { justify-content: space-between; }
   .datenav-label { flex: 1; text-align: center; }
   .kpis { grid-template-columns: 1fr 1fr; gap: 8px; }

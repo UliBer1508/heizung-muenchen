@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  ResponsiveContainer, ComposedChart, Line, Area, XAxis, YAxis, Tooltip, CartesianGrid, Legend, ReferenceArea,
+  ResponsiveContainer, ComposedChart, Line, Area, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Legend, ReferenceArea,
 } from 'recharts';
 import { supabase } from './supabase.js';
 
@@ -42,21 +42,6 @@ function useRpc(fn, args, deps) {
     return () => { cancel = true; };
   }, deps); // eslint-disable-line react-hooks/exhaustive-deps
   return state;
-}
-
-function DateNav({ date, setDate }) {
-  const today = todayBerlin();
-  return (
-    <div className="datenav">
-      <button className="btn" onClick={() => setDate(shiftDate(date, -1))} aria-label="Vortag">◀</button>
-      <label className="datenav-label">
-        <span>{fmtDate(date)}</span>
-        <input type="date" value={date} max={today} onChange={(e) => e.target.value && setDate(e.target.value)} />
-      </label>
-      <button className="btn" onClick={() => setDate(shiftDate(date, 1))} disabled={date >= today} aria-label="Folgetag">▶</button>
-      {date !== today && <button className="btn ghost small" onClick={() => setDate(today)}>Heute</button>}
-    </div>
-  );
 }
 
 function SourceBar({ parts, unit = 'kWh', digits = 1 }) {
@@ -401,19 +386,329 @@ function RoomsView({ date, settings, rooms }) {
   );
 }
 
+/* ------------------------------ Zeiträume ------------------------------ */
+const MONTHS = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
+const MONTHS_LONG = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+const iso = (d) => d.toISOString().slice(0, 10);
+const utc = (s) => new Date(`${s}T12:00:00Z`);
+
+function rangeOf(period, date) {
+  const d = utc(date);
+  if (period === 'week') {
+    const wd = (d.getUTCDay() + 6) % 7; // Mo = 0
+    const from = new Date(d); from.setUTCDate(d.getUTCDate() - wd);
+    const to = new Date(from); to.setUTCDate(from.getUTCDate() + 6);
+    return { from: iso(from), to: iso(to) };
+  }
+  if (period === 'month') {
+    const from = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1, 12));
+    const to = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0, 12));
+    return { from: iso(from), to: iso(to) };
+  }
+  if (period === 'year') return { from: `${d.getUTCFullYear()}-01-01`, to: `${d.getUTCFullYear()}-12-31` };
+  return { from: date, to: date };
+}
+function shiftPeriod(period, date, dir) {
+  const d = utc(date);
+  if (period === 'day') d.setUTCDate(d.getUTCDate() + dir);
+  else if (period === 'week') d.setUTCDate(d.getUTCDate() + 7 * dir);
+  else if (period === 'month') { d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() + dir); }
+  else d.setUTCFullYear(d.getUTCFullYear() + dir);
+  return iso(d);
+}
+function isoWeek(date) {
+  const d = utc(date); const wd = (d.getUTCDay() + 6) % 7;
+  d.setUTCDate(d.getUTCDate() - wd + 3);
+  const firstThu = new Date(Date.UTC(d.getUTCFullYear(), 0, 4, 12));
+  return 1 + Math.round(((d - firstThu) / 86400000 - 3 + ((firstThu.getUTCDay() + 6) % 7)) / 7);
+}
+function periodLabel(period, date) {
+  const r = rangeOf(period, date); const d = utc(date);
+  const short = (s) => utc(s).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', timeZone: 'UTC' });
+  if (period === 'day') return fmtDate(date);
+  if (period === 'week') return `KW ${isoWeek(date)} · ${short(r.from)}–${short(r.to)}`;
+  if (period === 'month') return `${MONTHS_LONG[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+  return String(d.getUTCFullYear());
+}
+
+function PeriodNav({ period, date, setDate }) {
+  const today = todayBerlin();
+  const next = shiftPeriod(period, date, 1);
+  const nextStart = rangeOf(period, next).from;
+  return (
+    <div className="datenav">
+      <button className="btn" onClick={() => setDate(shiftPeriod(period, date, -1))} aria-label="zurück">◀</button>
+      <label className="datenav-label">
+        <span>{periodLabel(period, date)}</span>
+        <input type="date" value={date} max={today} onChange={(e) => e.target.value && setDate(e.target.value)} />
+      </label>
+      <button className="btn" onClick={() => setDate(next > today ? today : next)} disabled={nextStart > today} aria-label="weiter">▶</button>
+      {rangeOf(period, today).from !== rangeOf(period, date).from && <button className="btn ghost small" onClick={() => setDate(today)}>Aktuell</button>}
+    </div>
+  );
+}
+
+const SUM_KEYS = ['data_hours', 'pv_kwh', 'use_kwh', 'grid_in_kwh', 'feed_kwh', 'bat_in_kwh', 'bat_out_kwh', 'pv_house_kwh', 'pv_heat_kwh', 'pv_car_kwh', 'pv_bat_kwh',
+  'bat_house_kwh', 'bat_heat_kwh', 'bat_car_kwh', 'heat_kwh', 'heat_sun_kwh', 'heat_bat_kwh', 'heat_grid_kwh', 'car_kwh', 'car_sun_kwh', 'car_bat_kwh', 'car_grid_kwh',
+  'house_kwh', 'house_grid_kwh', 'heat_p1_kwh', 'heat_p2_kwh', 'heat_p3_kwh', 'heat_p4_kwh', 'heat_p5_kwh',
+  'heat_grid_p1_kwh', 'heat_grid_p2_kwh', 'heat_grid_p3_kwh', 'heat_grid_p4_kwh', 'heat_grid_p5_kwh', 'bat_empty_h'];
+
+function aggregate(days) {
+  const t = Object.fromEntries(SUM_KEYS.map((k) => [k, days.reduce((s, d) => s + (Number(d[k]) || 0), 0)]));
+  const outs = days.map((d) => n(d.outdoor_avg)).filter((v) => v != null);
+  t.outdoor_avg = outs.length ? outs.reduce((a, b) => a + b, 0) / outs.length : null;
+  t.outdoor_min = days.reduce((m, d) => (d.outdoor_min != null && (m == null || Number(d.outdoor_min) < m) ? Number(d.outdoor_min) : m), null);
+  t.outdoor_max = days.reduce((m, d) => (d.outdoor_max != null && (m == null || Number(d.outdoor_max) > m) ? Number(d.outdoor_max) : m), null);
+  t.days = days.length;
+  t.empty_days = days.filter((d) => Number(d.bat_empty_h) >= 1).length;
+  t.car_measured = days.some((d) => d.car_measured);
+  t.autarky = t.use_kwh > 0 ? Math.round(100 * (1 - t.grid_in_kwh / t.use_kwh)) : null;
+  return t;
+}
+
+// Tage → Balken (Tag bzw. Monat beim Jahr)
+function toBars(period, days, range) {
+  if (period === 'year') {
+    return MONTHS.map((m, i) => {
+      const md = days.filter((d) => utc(String(d.day).slice(0, 10)).getUTCMonth() === i);
+      return md.length ? { label: m, ...aggregate(md), hasData: true } : { label: m, hasData: false };
+    });
+  }
+  const out = [];
+  for (let s = range.from; s <= range.to; s = shiftPeriod('day', s, 1)) {
+    const d = days.find((x) => String(x.day).slice(0, 10) === s);
+    const dt = utc(s);
+    const label = period === 'week'
+      ? dt.toLocaleDateString('de-DE', { weekday: 'short', timeZone: 'UTC' })
+      : String(dt.getUTCDate());
+    out.push(d ? { label, ...aggregate([d]), hasData: true } : { label, hasData: false });
+  }
+  return out;
+}
+
+const barTip = { formatter: (v, name) => (/Außen/.test(name) ? `${num(v, 1)} °C` : /Stunden/.test(name) ? `${num(v, 1)} h` : `${num(v, 1)} kWh`) };
+const r1 = (v) => (v == null ? null : Math.round(v * 10) / 10);
+
+function PeriodChart({ data, bars, line, lineUnit = '°', height = 230 }) {
+  return (
+    <ResponsiveContainer width="100%" height={height}>
+      <ComposedChart data={data} margin={{ top: 12, right: line ? 4 : 8, bottom: 0, left: -6 }}>
+        <CartesianGrid stroke="var(--grid)" vertical={false} />
+        <XAxis dataKey="label" stroke="var(--muted)" fontSize={11} interval="preserveStartEnd" minTickGap={4} />
+        <YAxis yAxisId="a" stroke="var(--muted)" fontSize={12} width={44} allowDecimals={false} />
+        {line && <YAxis yAxisId="l" orientation="right" stroke={line.color} fontSize={12} unit={lineUnit} width={38} allowDecimals={false} />}
+        <Tooltip {...barTip} />
+        {bars.map((b) => (
+          <Bar key={b.k} yAxisId="a" stackId="s" dataKey={(d) => r1(d[b.k])} name={b.label} fill={b.color} isAnimationActive={false} />
+        ))}
+        {line && <Line yAxisId="l" dataKey={(d) => r1(d[line.k])} name={line.label} stroke={line.color} strokeWidth={2} dot={{ r: 2 }} connectNulls isAnimationActive={false} />}
+      </ComposedChart>
+    </ResponsiveContainer>
+  );
+}
+
+const Legend2 = ({ items }) => (
+  <div className="srclegend">{items.map((i) => <span key={i.label}><i style={{ background: i.color }} />{i.label}</span>)}</div>
+);
+
+function PeriodView({ period, date }) {
+  const range = rangeOf(period, date);
+  const q = useRpc('muc_range_days', { p_from: range.from, p_to: range.to }, [range.from, range.to]);
+  if (q.error) return <div className="alert">{q.error}{/muc_range_days/.test(q.error) ? ' – bitte supabase/migration-003-zeitraeume.sql ausführen.' : ''}</div>;
+  if (q.loading) return <div className="muted">Lade Auswertung …</div>;
+  const days = q.data || [];
+  if (days.length === 0) return <div className="card muted">Für diesen Zeitraum gibt es noch keine Messwerte. Die Aufzeichnung läuft seit dem 22.10.2026.</div>;
+
+  const T = aggregate(days);
+  const bars = toBars(period, days, range);
+  const totalDays = Math.round((utc(range.to) - utc(range.from)) / 86400000) + 1;
+  const perDay = (v) => kwh(v / Math.max(1, T.days));
+  const offDayGrid = T.heat_grid_p1_kwh + T.heat_grid_p2_kwh + T.heat_grid_p4_kwh + T.heat_grid_p5_kwh;
+  const offDayHeat = T.heat_p1_kwh + T.heat_p2_kwh + T.heat_p4_kwh + T.heat_p5_kwh;
+
+  const ins = [];
+  if (T.heat_grid_kwh >= 1) ins.push({ tone: 'rose', title: `Wärmepumpe: ${kwh(T.heat_grid_kwh)} aus dem Netz (Ø ${perDay(T.heat_grid_kwh)} pro Tag)`, text: `${Math.round((100 * offDayGrid) / Math.max(T.heat_grid_kwh, 0.01))} % davon außerhalb 9–16 Uhr. Heizzeit und Warmwasser in die Sonnenstunden verschieben.` });
+  if (T.pv_kwh > 5 && T.heat_p3_kwh < offDayHeat * 0.5) ins.push({ tone: 'sun', title: 'Geheizt wird überwiegend ohne Sonne', text: `9–16 Uhr: ${kwh(T.heat_p3_kwh)}, übrige Zeit: ${kwh(offDayHeat)}.` });
+  if (T.car_bat_kwh >= 0.5) ins.push({ tone: 'rose', title: `Auto hat ${kwh(T.car_bat_kwh)} aus der Hausbatterie geladen`, text: 'In evcc die Entladung der Hausbatterie für das Fahrzeug sperren.' });
+  if (T.car_grid_kwh >= 0.5) ins.push({ tone: 'sun', title: `Auto hat ${kwh(T.car_grid_kwh)} aus dem Netz geladen`, text: 'Mindestladestrom bzw. Lademodus in evcc prüfen.' });
+  if (T.empty_days > 0) ins.push({ tone: 'cool', title: `Batterie an ${T.empty_days} von ${T.days} Tagen leer`, text: `Zusammen ${num(T.bat_empty_h, 1, ' h')} ohne Speicher. Entladen an Heizung ${kwh(T.bat_heat_kwh)}, Haus ${kwh(T.bat_house_kwh)}, Auto ${kwh(T.bat_car_kwh)}.` });
+  if (T.feed_kwh >= 2 && T.heat_grid_kwh >= 2) ins.push({ tone: 'green', title: `${kwh(T.feed_kwh)} eingespeist`, text: 'Im selben Zeitraum wurde aus dem Netz geheizt – Potenzial für mittägliches Vorheizen.' });
+  if (ins.length === 0) ins.push({ tone: 'green', title: 'Keine Auffälligkeiten', text: 'Der Zeitraum lief weitgehend mit eigenem Strom.' });
+
+  const unit = period === 'year' ? 'Monat' : 'Tag';
+  return (
+    <div className="stack">
+      {T.days < totalDays && <div className="notice-warn">Daten für {T.days} von {totalDays} Tagen{period !== 'year' ? '' : ''} – Summen gelten für die erfassten Tage.</div>}
+
+      <section className="kpis kpis-4">
+        <div className="card tile"><div className="eyebrow">PV</div><div className="tile-value">{kwh(T.pv_kwh)}</div><div className="muted small">Ø {perDay(T.pv_kwh)}/Tag · eingespeist {kwh(T.feed_kwh)}</div></div>
+        <div className="card tile"><div className="eyebrow">Verbrauch</div><div className="tile-value">{kwh(T.use_kwh)}</div><div className="muted small">Autarkie {T.autarky ?? '–'} %</div></div>
+        <div className="card tile"><div className="eyebrow">Netzbezug</div><div className={`tile-value ${T.grid_in_kwh / Math.max(1, T.days) > 3 ? 'warn-text' : ''}`}>{kwh(T.grid_in_kwh)}</div><div className="muted small">davon Heizung {kwh(T.heat_grid_kwh)}</div></div>
+        <div className="card tile"><div className="eyebrow">Außen</div><div className="tile-value">{T.outdoor_avg != null ? `Ø ${num(T.outdoor_avg, 1, ' °C')}` : '–'}</div><div className="muted small">{T.outdoor_min != null ? `${num(T.outdoor_min, 1)} … ${num(T.outdoor_max, 1)} °C` : 'noch nicht erfasst'}</div></div>
+      </section>
+
+      <section className="card">
+        <div className="chart-title">Das Wichtigste</div>
+        <div className="insights">{ins.map((i) => <Insight key={i.title} tone={i.tone} title={i.title}>{i.text}</Insight>)}</div>
+      </section>
+
+      <Section nr="1" title="PV-Anlage" question={`Wohin ging der Sonnenstrom? (kWh je ${unit})`}>
+        <SourceBar parts={[
+          { k: 'h', label: 'Haus', color: F.house, v: T.pv_house_kwh }, { k: 'w', label: 'Heizung', color: F.heat, v: T.pv_heat_kwh },
+          { k: 'c', label: 'Auto', color: F.car, v: T.pv_car_kwh }, { k: 'b', label: 'Batterie geladen', color: F.batIn, v: T.pv_bat_kwh },
+          { k: 'f', label: 'Eingespeist', color: F.feed, v: T.feed_kwh },
+        ]} />
+        <PeriodChart data={bars} bars={[
+          { k: 'pv_house_kwh', label: 'Haus', color: F.house }, { k: 'pv_heat_kwh', label: 'Heizung', color: F.heat },
+          { k: 'pv_car_kwh', label: 'Auto', color: F.car }, { k: 'pv_bat_kwh', label: 'Batterie geladen', color: F.batIn },
+          { k: 'feed_kwh', label: 'Eingespeist', color: F.feed },
+        ]} />
+      </Section>
+
+      <Section nr="2" title="Batterie" question={`Wer hat sie geleert – und wie oft war sie leer? (kWh je ${unit})`}>
+        <div className="facts">
+          <span>geladen <strong>{kwh(T.pv_bat_kwh)}</strong> · entladen <strong>{kwh(T.bat_out_kwh)}</strong></span>
+          <span>leer an <strong>{T.empty_days}</strong> von {T.days} Tagen</span>
+        </div>
+        <SourceBar parts={[
+          { k: 'w', label: 'Heizung', color: F.heat, v: T.bat_heat_kwh }, { k: 'h', label: 'Haus', color: F.house, v: T.bat_house_kwh },
+          { k: 'c', label: 'Auto', color: F.car, v: T.bat_car_kwh },
+        ]} />
+        <PeriodChart data={bars} line={{ k: 'bat_empty_h', label: 'Stunden leer', color: F.bat }} lineUnit=" h" bars={[
+          { k: 'bat_heat_kwh', label: 'an Heizung', color: F.heat }, { k: 'bat_house_kwh', label: 'an Haus', color: F.house },
+          { k: 'bat_car_kwh', label: 'an Auto', color: F.car },
+        ]} />
+        <Legend2 items={[{ label: 'Balken: Entladung je Verbraucher', color: F.heat }, { label: 'Linie: Stunden mit leerer Batterie', color: F.bat }]} />
+      </Section>
+
+      <Section nr="3" title="Wärmepumpe" question={`Wie viel wurde geheizt – womit, und hängt es an der Außentemperatur? (kWh je ${unit})`}>
+        <SourceBar parts={[
+          { k: 's', label: 'Sonne', color: F.sun, v: T.heat_sun_kwh }, { k: 'b', label: 'Batterie', color: F.bat, v: T.heat_bat_kwh },
+          { k: 'g', label: 'Netz', color: F.grid, v: T.heat_grid_kwh },
+        ]} />
+        <PeriodChart data={bars} line={{ k: 'outdoor_avg', label: 'Außen Ø', color: F.feed }} bars={[
+          { k: 'heat_sun_kwh', label: 'aus Sonne', color: F.sun }, { k: 'heat_bat_kwh', label: 'aus Batterie', color: F.bat },
+          { k: 'heat_grid_kwh', label: 'aus Netz', color: F.grid },
+        ]} />
+        <Legend2 items={[{ label: 'Sonne', color: F.sun }, { label: 'Batterie', color: F.bat }, { label: 'Netz', color: F.grid }, { label: 'Außentemperatur Ø (rechte Achse)', color: F.feed }]} />
+        <table className="ptable">
+          <thead><tr><th>Tageszeit</th><th>Heizstrom</th><th>Ø je Tag</th><th>davon Netz</th></tr></thead>
+          <tbody>
+            {[['Nacht 0–6', 1], ['Morgen 6–9', 2], ['Tag 9–16', 3], ['Abend 16–20', 4], ['Nacht 20–24', 5]].map(([l, p]) => (
+              <tr key={p}>
+                <td>{l}</td><td>{kwh(T[`heat_p${p}_kwh`])}</td><td>{perDay(T[`heat_p${p}_kwh`])}</td>
+                <td className={T[`heat_grid_p${p}_kwh`] / Math.max(1, T.days) >= 0.5 ? 'warn-text' : ''}>{kwh(T[`heat_grid_p${p}_kwh`])}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div className="muted small">Heizstrom geschätzt (Verbrauch − Auto − Grundlast), bis die Wärmepumpe selbst gemessen wird.</div>
+      </Section>
+
+      <Section nr="4" title="Auto" question={`Woher kam der Ladestrom? (kWh je ${unit})`}>
+        {!T.car_measured ? <div className="muted small">Im Zeitraum wurde die Auto-Ladeleistung noch nicht erfasst.</div>
+          : T.car_kwh < 0.1 ? <div className="muted small">Im Zeitraum nicht geladen.</div> : (
+            <>
+              <div className="facts"><span>geladen <strong>{kwh(T.car_kwh)}</strong></span></div>
+              <SourceBar parts={[
+                { k: 's', label: 'Sonne', color: F.sun, v: T.car_sun_kwh }, { k: 'b', label: 'Hausbatterie', color: F.bat, v: T.car_bat_kwh },
+                { k: 'g', label: 'Netz', color: F.grid, v: T.car_grid_kwh },
+              ]} />
+              <PeriodChart data={bars} height={190} bars={[
+                { k: 'car_sun_kwh', label: 'aus Sonne', color: F.sun }, { k: 'car_bat_kwh', label: 'aus Hausbatterie', color: F.bat },
+                { k: 'car_grid_kwh', label: 'aus Netz', color: F.grid },
+              ]} />
+            </>
+          )}
+      </Section>
+    </div>
+  );
+}
+
+// Räume über einen Zeitraum
+function aggregateRoom(rows) {
+  const w = rows.reduce((s, r) => s + (Number(r.data_hours) || 0), 0);
+  const wavg = (k) => (w > 0 ? rows.reduce((s, r) => s + (Number(r[k]) || 0) * (Number(r.data_hours) || 0), 0) / w : null);
+  const sum = (k) => rows.reduce((s, r) => s + (Number(r[k]) || 0), 0);
+  const avg = (k) => { const v = rows.map((r) => n(r[k])).filter((x) => x != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+  return {
+    data_hours: w || null, temp_avg: wavg('temp_avg'), setpoint_avg: wavg('setpoint_avg'), dev_avg: wavg('dev_avg'),
+    temp_min: rows.reduce((m, r) => (r.temp_min != null && (m == null || Number(r.temp_min) < m) ? Number(r.temp_min) : m), null),
+    temp_max: rows.reduce((m, r) => (r.temp_max != null && (m == null || Number(r.temp_max) > m) ? Number(r.temp_max) : m), null),
+    cold_h: sum('cold_h'), warm_h: sum('warm_h'), valve_h: sum('valve_h'), valve_pv_h: sum('valve_pv_h'), valve_bat_h: sum('valve_bat_h'), valve_grid_h: sum('valve_grid_h'),
+    valve_switches: sum('valve_switches'), heat_rate_kph: avg('heat_rate_kph'), cool_rate_kph: avg('cool_rate_kph'),
+  };
+}
+
+function PeriodRoomsView({ period, date, rooms }) {
+  const range = rangeOf(period, date);
+  const q = useRpc('muc_range_rooms', { p_from: range.from, p_to: range.to }, [range.from, range.to]);
+  const [roomId, setRoomId] = useState(rooms[0]?.id);
+  if (q.error) return <div className="alert">{q.error}{/muc_range_rooms/.test(q.error) ? ' – bitte supabase/migration-003-zeitraeume.sql ausführen.' : ''}</div>;
+  if (q.loading) return <div className="muted">Lade Raumauswertung …</div>;
+  const all = q.data || [];
+  const stats = rooms.map((ro) => ({ room_id: ro.id, name: ro.name, ...aggregateRoom(all.filter((r) => r.room_id === ro.id)) }));
+  const room = stats.find((r) => r.room_id === roomId);
+  const mine = all.filter((r) => r.room_id === roomId);
+  const groups = period === 'year'
+    ? MONTHS.map((m, i) => ({ label: m, rows: mine.filter((r) => utc(String(r.day).slice(0, 10)).getUTCMonth() === i) }))
+    : (() => { const g = []; for (let s = range.from; s <= range.to; s = shiftPeriod('day', s, 1)) {
+      const dt = utc(s);
+      g.push({ label: period === 'week' ? dt.toLocaleDateString('de-DE', { weekday: 'short', timeZone: 'UTC' }) : String(dt.getUTCDate()), rows: mine.filter((r) => String(r.day).slice(0, 10) === s) });
+    } return g; })();
+  const data = groups.map((g) => {
+    const a = aggregateRoom(g.rows);
+    return { label: g.label, sun: r1(a.valve_pv_h), bat: r1(a.valve_bat_h), grid: r1(a.valve_grid_h), temp: a.data_hours ? r1(a.temp_avg) : null, set: a.data_hours ? r1(a.setpoint_avg) : null };
+  });
+
+  return (
+    <div className="stack">
+      <div className="roomstats">
+        {stats.map((r) => <RoomStatCard key={r.room_id} r={r} selected={r.room_id === roomId} onSelect={() => setRoomId(r.room_id)} />)}
+      </div>
+      <section className="card chart">
+        <div className="chart-title">{room?.name}: Ventil-offen-Stunden und Temperatur je {period === 'year' ? 'Monat' : 'Tag'}</div>
+        <ResponsiveContainer width="100%" height={250}>
+          <ComposedChart data={data} margin={{ top: 12, right: 4, bottom: 0, left: -14 }}>
+            <CartesianGrid stroke="var(--grid)" vertical={false} />
+            <XAxis dataKey="label" stroke="var(--muted)" fontSize={11} interval="preserveStartEnd" minTickGap={4} />
+            <YAxis yAxisId="a" stroke="var(--muted)" fontSize={12} unit=" h" width={50} />
+            <YAxis yAxisId="t" orientation="right" stroke={C.temp} fontSize={12} unit="°" width={40} domain={[(m) => Math.floor(m - 1), (m) => Math.ceil(m + 1)]} allowDecimals={false} />
+            <Tooltip formatter={(v, name) => (/Ø/.test(name) ? `${num(v, 1)} °C` : `${num(v, 1)} h`)} />
+            <Bar yAxisId="a" stackId="v" dataKey="sun" name="Ventil offen – Sonne" fill={F.sun} isAnimationActive={false} />
+            <Bar yAxisId="a" stackId="v" dataKey="bat" name="Ventil offen – Batterie" fill={F.bat} isAnimationActive={false} />
+            <Bar yAxisId="a" stackId="v" dataKey="grid" name="Ventil offen – Netz" fill={F.grid} isAnimationActive={false} />
+            <Line yAxisId="t" dataKey="temp" name="Ø Ist" stroke={C.temp} strokeWidth={2} dot={{ r: 2 }} connectNulls isAnimationActive={false} />
+            <Line yAxisId="t" dataKey="set" name="Ø Soll" stroke={C.set} strokeDasharray="5 3" strokeWidth={2} dot={false} connectNulls isAnimationActive={false} />
+          </ComposedChart>
+        </ResponsiveContainer>
+        <Legend2 items={[{ label: 'Ventil offen bei Sonne', color: F.sun }, { label: '… Batterie', color: F.bat }, { label: '… Netz', color: F.grid }, { label: 'Ø Ist', color: C.temp }, { label: 'Ø Soll', color: C.set }]} />
+      </section>
+    </div>
+  );
+}
+
 export default function Analyse({ settings, rooms }) {
-  const [view, setView] = useState('day');
+  const [period, setPeriod] = useState('day');
+  const [view, setView] = useState('energy');
   const [date, setDate] = useState(todayBerlin());
+  const active = rooms.filter((r) => r.enabled);
+  const P = [['day', 'Tag'], ['week', 'Woche'], ['month', 'Monat'], ['year', 'Jahr']];
   return (
     <div className="stack">
       <div className="toolbar analyse-bar">
+        <div className="seg seg-4">
+          {P.map(([k, l]) => <button key={k} className={period === k ? 'seg-btn active' : 'seg-btn'} onClick={() => setPeriod(k)}>{l}</button>)}
+        </div>
         <div className="seg seg-2">
-          <button className={view === 'day' ? 'seg-btn active' : 'seg-btn'} onClick={() => setView('day')}>Tag</button>
+          <button className={view === 'energy' ? 'seg-btn active' : 'seg-btn'} onClick={() => setView('energy')}>Energie</button>
           <button className={view === 'rooms' ? 'seg-btn active' : 'seg-btn'} onClick={() => setView('rooms')}>Räume</button>
         </div>
-        <DateNav date={date} setDate={setDate} />
       </div>
-      {view === 'day' ? <DayView date={date} settings={settings} /> : <RoomsView date={date} settings={settings} rooms={rooms.filter((r) => r.enabled)} />}
+      <PeriodNav period={period} date={date} setDate={setDate} />
+      {period === 'day'
+        ? (view === 'energy' ? <DayView date={date} settings={settings} /> : <RoomsView date={date} settings={settings} rooms={active} />)
+        : (view === 'energy' ? <PeriodView period={period} date={date} /> : <PeriodRoomsView period={period} date={date} rooms={active} />)}
     </div>
   );
 }

@@ -12,7 +12,7 @@ import {
   DEFAULT_SETTINGS, averageEnergy, desiredHouseMode, applyHold, roomTarget, needsWrite, surplusW,
 } from './logic.js';
 
-const VERSION = '0.2.0';
+const VERSION = '0.3.0';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const stateDir = process.env.STATE_DIR || path.join(here, '..', 'state');
 const cacheFile = path.join(stateDir, 'cache.json');
@@ -52,6 +52,7 @@ let lastCleanupDay = null;
 let outdoor = { temp: null, at: 0 }; // letzte Außentemperatur
 let evccWarned = false;
 let missingColsWarned = false;
+let lastDailyStore = null; // Datum (Berlin), an dem die Tageswerte zuletzt gespeichert wurden
 
 function loadCache() {
   try {
@@ -240,7 +241,19 @@ async function tick() {
     }]));
   }
 
-  // 6) Einmal täglich alte Messwerte löschen
+  // 6) Tageswerte abgeschlossener Tage dauerhaft speichern (beim Start und nach Mitternacht)
+  const berlinDay = now.toLocaleDateString('en-CA', { timeZone: settings.timezone || 'Europe/Berlin' });
+  if (db.enabled && lastDailyStore !== berlinDay) {
+    lastDailyStore = berlinDay;
+    try {
+      const n = await db.rpc('muc_store_missing_days');
+      if (n) log(`Tageswerte gespeichert: ${n} Tag(e)`);
+    } catch (e) {
+      log('Tageswerte nicht gespeichert (migration-003-zeitraeume.sql ausgeführt?):', e.message);
+    }
+  }
+
+  // 7) Einmal täglich alte Messwerte löschen
   const day = now.toISOString().slice(0, 10);
   if (lastCleanupDay !== day) {
     lastCleanupDay = day;

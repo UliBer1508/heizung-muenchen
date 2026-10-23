@@ -1,6 +1,6 @@
 # Heizung München – Projektstand und Roadmap
 
-Stand: 23.10.2026 · Collector-Version 0.2.0
+Stand: 23.10.2026 · Collector-Version 0.3.0
 
 Dieses Dokument fasst zusammen, was bisher umgesetzt wurde, welche Phasen noch offen sind
 und was darüber hinaus empfehlenswert ist. Technische Details stehen in
@@ -76,6 +76,9 @@ und was darüber hinaus empfehlenswert ist. Technische Details stehen in
   geschätzter Heizstrom und dessen Herkunft (Sonne/Batterie/Netz), Tageskurven.
 - **Analyse – Räume:** Ø Ist/Soll, Abweichung, Stunden zu kalt, Aufheiz-/Abkühlrate,
   Ventil-offen-Stunden nach Stromherkunft, Raumkurve mit Außentemperatur.
+- **Analyse – Woche / Monat / Jahr:** dieselben vier Fragen (PV, Batterie, Wärmepumpe, Auto) als Balken je Tag bzw. Monat,
+  Wärmepumpe mit Außentemperatur, Heizstrom nach Tageszeit, Räume mit Ventil-Stunden und Temperaturverlauf.
+  Tageswerte werden nachts dauerhaft gespeichert (`muc_daily_stats`).
 - **Protokoll:** jede Entscheidung mit Begründung.
 - **Einstellungen:** Testmodus, Automatik, Zeiten, Schwellwerte, Grundlast, Temperaturen je Raum und Modus.
 
@@ -100,10 +103,10 @@ und was darüber hinaus empfehlenswert ist. Technische Details stehen in
 ## 3. Offene Phasen
 
 ### Phase 2 – Analyse: Vergleich (nach 1–2 Wochen Daten)
-- Tabelle `muc_daily_stats`: nächtlich berechnete Tageswerte, dauerhaft gespeichert
-  (Rohdaten werden nach 90 Tagen gelöscht).
-- Bereich **Vergleich**: Wochentabelle (Außentemperatur, PV, Netzbezug nachts, Heizen aus PV in %)
-  und Gegenüberstellung zweier Zeiträume (vor/nach einer Änderung), bezogen auf die Außentemperatur.
+- ✅ Erledigt: Tageswerte dauerhaft (`muc_daily_stats`), Zeiträume Woche/Monat/Jahr.
+- Offen: Gegenüberstellung zweier Zeiträume (vor/nach einer Änderung), bezogen auf die Außentemperatur
+  (z. B. Heizstrom je Heizgradtag).
+- Optional: Import historischer FEMS-Exporte (Monat/Jahr), damit die Jahresansicht vor dem 22.10.2026 Werte zeigt.
 
 ### Phase 3 – Wärmepumpe direkt per Modbus (nach LAN-Anschluss)
 - Voraussetzung: Netzwerkkabel (oder FRITZ!Repeater mit LAN-Buchse) an der Wärmepumpe.

@@ -148,3 +148,15 @@ Lokal testen: `cd frontend` → `.env.local` aus `.env.example` → `npm install
 
 Hinweis: Der Heizstrom ist bis zur Messung an der Wärmepumpe eine Schätzung
 (Verbrauch − Auto − Grundlast). Die Grundlast ist unter *Einstellungen → Analyse* einstellbar.
+
+---
+
+## 7. Update: Analyse über Woche, Monat, Jahr
+
+1. Supabase → SQL Editor → Inhalt von `supabase/migration-003-zeitraeume.sql` → *Run*.
+   Am Ende erscheint `gespeicherte_tage` = Anzahl der bereits nachgetragenen Tage.
+2. Mini-PC: `git pull` → `C:\nssm\nssm.exe restart HeizungMuenchen` (Collector 0.3.0).
+   Der Collector speichert ab jetzt nach jeder Mitternacht die Tageswerte dauerhaft
+   (`muc_daily_stats`, `muc_room_daily_stats`). Die Minutenwerte werden weiterhin nach 90 Tagen gelöscht,
+   die Tageswerte bleiben – damit sind Monats- und Jahresauswertungen möglich.
+3. App: Analyse → **Tag / Woche / Monat / Jahr** und **Energie / Räume**.

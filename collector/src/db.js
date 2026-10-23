@@ -40,6 +40,10 @@ export class Db {
     return this.req('PATCH', `${table}?${filter}`, patch, { Prefer: 'return=minimal' });
   }
 
+  rpc(fn, args = {}) {
+    return this.req('POST', `rpc/${fn}`, args);
+  }
+
   delete(table, filter) {
     return this.req('DELETE', `${table}?${filter}`, undefined, { Prefer: 'return=minimal' });
   }
