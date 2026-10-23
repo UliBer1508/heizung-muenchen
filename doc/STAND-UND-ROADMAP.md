@@ -37,15 +37,26 @@ und was darüber hinaus empfehlenswert ist. Technische Details stehen in
 - FENECON-Werte (SoC, Netz, PV, Batterie) per Modbus in Loxone eingebunden (Seite „PV-Überschuss“).
 - Getestet: Software kann über einen virtuellen Eingang die Komforttemperatur (ϑch) eines
   Raumreglers setzen – Loxone öffnet/schließt dann das Ventil selbst.
-- Vier Räume eingerichtet, je Raum: eindeutiger Fühlername, eindeutiger Ventilname,
-  virtueller Eingang → ϑch, Validierung 5–26 °C, Standardwert = Normaltemperatur, „Standardwert bei Start“.
+- **Zehn Räume** eingerichtet (KG, DG, OG), je Raum: eindeutiger Fühlername, eindeutiger Ventilname,
+  virtueller Eingang → ϑch, Validierung 5–26 °C, Standardwert = bisherige Komforttemperatur,
+  „Standardwert bei Start“, nicht in der Visualisierung. Alle zehn liefern Temperatur, Sollwert und Ventil (geprüft 23.10.2026).
+- **Noch nicht eingerichtet: Erdgeschoss** (siehe Abschnitt 7).
 
-| Raum | Fühler | Virtueller Eingang | Ventil |
-|---|---|---|---|
-| KG Bad | `Temp KG Bad` | `API_Boost_Bad` | `Bad KG` |
-| DG Bad | `Temp DG Bad` | `API_Soll_DG_Bad` | `Ventil DG Bad` |
-| DG Schlafzimmer | `Temp DG Schlafzimmer` | `API_Soll_DG_Schlafzimmer` | `Ventil DG Schlafzimmer` |
-| DG Wohnen/Essen/Küche | `Temp DG Wohnen` | `API_Soll_DG_Wohnen` | `Ventil DG Wohnen` |
+| Raum | ID (App) | Fühler | Virtueller Eingang | Ventil |
+|---|---|---|---|---|
+| KG Bad | `kg_bad` | `Temp KG Bad` | `API_Boost_Bad` | `Bad KG` |
+| DG Bad | `dg_bad` | `Temp DG Bad` | `API_Soll_DG_Bad` | `Ventil DG Bad` (Q12) |
+| DG Schlafzimmer | `dg_schlafen` | `Temp DG Schlafzimmer` | `API_Soll_DG_Schlafzimmer` | `Ventil DG Schlafzimmer` (Q10) |
+| DG Wohnen/Essen/Küche | `dg_wohnen` | `Temp DG Wohnen` | `API_Soll_DG_Wohnen` | `Ventil DG Wohnen` (Q11) |
+| OG Eltern Bad | `og_bad` | `TEMP OG Bad` | `API_Soll_OG_Bad` | `Ventil OG Bad` (Q6) |
+| OG Luis Bad | `og_luis_bad` | `Temp OG Luis Bad` | `API_Soll_OG_Bad_Luis` | `Ventil OG Luis Bad` (Q4) |
+| OG Büro (kleines Zimmer) | `og_buero` | `Temp OG Buero` | `API_Soll_OG_Buero` | `Ventil OG Buero` (Q8) |
+| OG Luis Schlafzimmer | `og_luis_schlafen` | `Temp OG Luis Schlafzimmer` | `API_Soll_OG_Luis_Schlafzimmer` | `Ventil OG Luis Schlafzimmer` (Q5) |
+| OG Eltern Schlafzimmer | `og_eltern_schlafen` | `Temp OG Eltern Schlafzimmer` | `API_Soll_OG_Eltern_Schlafzimmer` | `Ventil OG Eltern Schlafzimmer` (Q7) |
+| OG Ankleidezimmer | `og_ankleide` | `Temp OG Ankleidezimmer` | `API_Soll_OG_Ankleidezimmer` | `Ventil OG Ankleidezimmer` (Q3) |
+
+Die Ventile (außer KG Bad) liegen auf der Relay Extension 15 (Schaltschrank DG R02 P02).
+Namen ohne Umlaute verwenden (z. B. „Buero“), sonst drohen 404-Fehler beim Webservice.
 
 ### 2.2 Collector (Mini-PC, Dienst `HeizungMuenchen`)
 
@@ -84,12 +95,20 @@ und was darüber hinaus empfehlenswert ist. Technische Details stehen in
 
 ### 2.5 Aktuelle Raumtemperaturen (°C)
 
-| Raum | Nacht | Normal | PV-Laden | Batterie voll |
+| Raum | Nacht / Abend-Schutz | Normal | PV-Laden | Batterie voll |
 |---|---|---|---|---|
 | KG Bad | 15 | 16 | 21 | 23 |
-| DG Bad | 21 | 22,5 | 24 | 24,5 |
-| DG Schlafzimmer | 19,5 | 21 | 22 | 22,5 |
-| DG Wohnen/Essen/Küche | 20 | 22 | 23,5 | 24 |
+| DG Bad | 20 | 21 | 24 | 24,5 |
+| DG Schlafzimmer | 19 | 21 | 22 | 22,5 |
+| DG Wohnen/Essen/Küche | 20 | 21 | 23,5 | 24 |
+| OG Eltern Bad | 21 | 22,5 | 24 | 24,5 |
+| OG Luis Bad | 21 | 22,5 | 24 | 24,5 |
+| OG Büro | 19,5 | 21 | 22,5 | 23 |
+| OG Luis Schlafzimmer | 21 | 22,5 | 23,5 | 24 |
+| OG Eltern Schlafzimmer | 17 | 18 | 19,5 | 20 |
+| OG Ankleidezimmer | 18,5 | 20 | 21,5 | 22 |
+
+Änderbar in der App unter *Einstellungen*. Maßgeblich ist immer der Wert in der Datenbank.
 
 ### 2.6 Weitere Ergebnisse
 
@@ -118,6 +137,8 @@ und was darüber hinaus empfehlenswert ist. Technische Details stehen in
 - Entscheiden: SG-Ready über FENECON **oder** Modbus über den Collector – nur ein System steuert die Wärmepumpe.
 
 ### Phase 4 – Weitere Räume
+- ✅ KG Bad, DG (3 Räume) und OG (6 Räume) erledigt.
+- **Offen: Erdgeschoss** – Vorgehen siehe Abschnitt 7.
 - Je Raum dieselben drei Loxone-Schritte und eine Zeile in `muc_rooms`. Kein Code nötig.
 - Vorrang für Räume mit großer Estrichfläche (speichern am meisten PV-Wärme).
 - Hinweis: Sobald die App ϑch steuert, wirkt die Komforttemperatur der Loxone-App für diesen Raum nicht mehr.
@@ -143,7 +164,8 @@ Nach Wirkung sortiert:
 | 5 | **Zirkulationspumpe** nur 06:00–07:30 und 18:00–21:00 | Weishaupt bzw. Loxone | weniger Wärmeverlust rund um die Uhr |
 | 6 | **Eigener Loxone-Benutzer `api`** mit Rechten nur auf die nötigen Bausteine; bisheriges Passwort ändern (war im Chat sichtbar) | Loxone Config + `.env` | Sicherheit |
 | 7 | **Zwischenzähler an der Wärmepumpe** (falls Modbus-Messung nicht reicht) | Elektriker / FENECON | unabhängige, genaue Messung des Heizstroms |
-| 8 | **Supabase-Schlüssel**: `service_role` nur in der `.env` auf dem Mini-PC; App nutzt `anon` + Login | – | ist so umgesetzt, bitte beibehalten |
+| 8 | **Loxone aufräumen**: unbenutzten virtuellen Eingang `API_SOLL_Bad` löschen; vorbereitete Automatikbeschattungen deaktivieren, solange keine Rollos verbaut sind | Loxone Config | verhindert Verwechslungen und ungewollte Schaltvorgänge |
+| 9 | **Supabase-Schlüssel**: `service_role` nur in der `.env` auf dem Mini-PC; App nutzt `anon` + Login | – | ist so umgesetzt, bitte beibehalten |
 
 Die Punkte 1 und 2 kann der Heizungsbauer beim Termin für das LAN-Kabel mit erledigen.
 
@@ -173,5 +195,52 @@ in Loxone die Verbindung „virtueller Eingang → ϑch“ löschen.
 - Aufheiz-/Abkühlraten sind Tendenzen; Sonneneinstrahlung und Nutzung beeinflussen sie.
 - Ohne Ansteuerung der Wärmepumpe wirkt die PV-Anhebung nur, wenn die Wärmepumpe ohnehin heizt –
   die Raumventile bestimmen, *wohin* die Wärme geht, nicht *wann* sie erzeugt wird.
+- Der Loxone-Raumregler schaltet das Ventil nicht exakt am Sollwert ab, sondern mit Nachlauf/Toleranz
+  (beobachtet: Ventil offen bei 0,2 K über Soll). Für die PV-Anhebung unkritisch.
 - Die GitHub-Verbindung von Claude kann nur lesen; Updates werden als ZIP geliefert und per
   „Upload files“ hochgeladen.
+
+---
+
+## 7. Neuen Raum hinzufügen (z. B. Erdgeschoss)
+
+**In Loxone Config** (Seite des Raums):
+
+1. **Fühler** am Eingang ϑc des Raumreglers anklicken → Bezeichnung `Temp <Etage> <Raum>` (eindeutig, ohne Umlaute).
+2. **Ventil** am Ausgang H anklicken → Bezeichnung `Ventil <Etage> <Raum>`.
+   Hängt an H nichts: im Baum unter *Digitale Ausgänge / Relay 15* den passenden Ausgang suchen und mit H verbinden.
+3. **Virtueller Eingang** anlegen (*Peripherie → Virtuelle Eingänge → Virtueller Eingang*):
+   - Bezeichnung `API_Soll_<Etage>_<Raum>`
+   - „Als Digitaleingang verwenden“ **aus**, „In Visualisierung verwenden“ **aus**
+   - Validierung: Minimal 5, Maximal 26, Standardwert = bisherige Komforttemperatur, „Standardwert bei Start“ ✔
+4. Eingang auf die Seite ziehen, Linie auf den Raumregler ziehen → **ϑch** wählen
+   (dabei den bisherigen ϑch-Wert ablesen = Normaltemperatur).
+5. **In den Miniserver speichern.**
+
+**In Supabase** (SQL Editor) – Namen exakt wie in Loxone:
+
+```sql
+insert into muc_rooms (id, name, sort, enabled, loxone_temp_name, loxone_setpoint_name, loxone_valve_name,
+                       temp_night, temp_normal, temp_pv, temp_full)
+values ('eg_xxx', 'EG Raumname', 60, true, 'Temp EG Raumname', 'API_Soll_EG_Raumname', 'Ventil EG Raumname',
+        19.5, 21, 22.5, 23)
+on conflict (id) do update set
+  name = excluded.name, enabled = excluded.enabled,
+  loxone_temp_name = excluded.loxone_temp_name, loxone_setpoint_name = excluded.loxone_setpoint_name,
+  loxone_valve_name = excluded.loxone_valve_name,
+  temp_night = excluded.temp_night, temp_normal = excluded.temp_normal,
+  temp_pv = excluded.temp_pv, temp_full = excluded.temp_full;
+```
+
+**Kontrolle** (nach einer Minute):
+
+```sql
+select r.name, rr.ts, rr.temp, rr.setpoint, rr.valve
+from muc_rooms r
+left join lateral (select ts, temp, setpoint, valve from muc_room_readings
+                   where room_id = r.id order by ts desc limit 1) rr on true
+order by r.sort;
+```
+
+Leere Spalte = Name in Loxone stimmt nicht (`temp` → Fühler, `setpoint` → virtueller Eingang, `valve` → Ventil).
+Alternativ zeigt die App oben „Letzter Fehler … 404“ mit dem betroffenen Namen.

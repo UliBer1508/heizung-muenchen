@@ -2,7 +2,7 @@
 
 PV-gesteuerte Wasser-Fußbodenheizung (Wärmepumpe) im Haus München.
 FENECON liefert PV-, Netz- und Batteriewerte, die App setzt pro Raum die
-Komforttemperatur im Loxone-Raumregler. Aktiv: KG Bad, DG Bad, DG Schlafzimmer, DG Wohnen/Essen/Küche.
+Komforttemperatur im Loxone-Raumregler. Aktiv: 10 Räume in KG, DG und OG (Liste in `doc/STAND-UND-ROADMAP.md`); EG folgt.
 
 | | |
 |---|---|
