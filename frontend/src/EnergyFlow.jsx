@@ -1,6 +1,7 @@
 // Energiefluss-Kachel (PV / Verbraucher / Netz / Batterie um den Wechselrichter)
 // Erwartet das energy-Objekt aus der Übersicht:
 //   { pv_w, grid_w (+Bezug/−Einspeisung), battery_w (+Entladen/−Laden), consumption_w, soc }
+import { useState } from 'react';
 // Keine weiteren Abhängigkeiten, Styles sind eingebettet.
 
 const IDLE_W = 30; // darunter gilt eine Leitung als "steht"
@@ -149,7 +150,13 @@ function Flow({ id, watts, dir, color }) {
 
 const CSS = `
 .ef-card { --ef-bg: var(--card, var(--surface, #fff)); }
-.ef-svg { width: 100%; max-width: 440px; height: auto; display: block; margin: 0 auto; }
+.ef-head { all: unset; box-sizing: border-box; width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; }
+.ef-head:focus-visible { outline: 2px solid #4a90d9; outline-offset: 4px; border-radius: 6px; }
+.ef-sum { font-size: 13px; opacity: .75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ef-chev { display: inline-block; transition: transform .2s; font-size: 14px; opacity: .6; }
+.ef-chev.open { transform: rotate(90deg); }
+.ef-body { margin-top: 12px; }
+.ef-svg { width: 100%; max-width: 320px; height: auto; display: block; margin: 0 auto; }
 .ef-svg text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: currentColor; }
 .ef-value { font-size: 14px; font-weight: 600; }
 .ef-label { font-size: 15px; font-weight: 600; }
@@ -187,9 +194,28 @@ export default function EnergyFlow({ energy, compact = false }) {
   if (sgn(grid) > 0) gridNote = { text: "Bezug", color: '#d9534f' };
   else if (sgn(grid) < 0) gridNote = { text: "Einspeisung", color: C.battery };
 
+  const [open, setOpen] = useState(() => {
+    try { return localStorage.getItem('ef-open') === '1'; } catch { return false; }
+  });
+  const toggle = () => {
+    setOpen((o) => {
+      try { localStorage.setItem('ef-open', o ? '0' : '1'); } catch {}
+      return !o;
+    });
+  };
+  const kw = (w) => `${(Math.abs(w) / 1000).toLocaleString('de-DE', { maximumFractionDigits: 1 })} kW`;
+  const summary = `PV ${kw(pv)} · Haus ${kw(home)} · ${grid > IDLE_W ? 'Bezug' : grid < -IDLE_W ? 'Einsp.' : 'Netz'} ${kw(grid)} · Akku ${soc ?? '–'} %`;
+
   return (
     <div className={compact ? 'ef-card ef-compact' : 'card ef-card'}>
       <style>{CSS}</style>
+      <button type="button" className="ef-head" onClick={toggle} aria-expanded={open}>
+        <span className="eyebrow">Energiefluss</span>
+        <span className="ef-sum">{open ? '' : summary}</span>
+        <span className={`ef-chev ${open ? 'open' : ''}`} aria-hidden="true">▶</span>
+      </button>
+      {open && (
+      <div className="ef-body">
       <svg className="ef-svg" viewBox="0 0 400 440" role="img" aria-label="Energiefluss">
         <Flow id="pv" watts={pv} dir={sgn(pv) > 0 ? 1 : 0} color={C.pv} />
         <Flow id="home" watts={home} dir={sgn(home) > 0 ? -1 : 0} color={C.home} />
@@ -223,6 +249,8 @@ export default function EnergyFlow({ energy, compact = false }) {
           </text>
         )}
       </svg>
+      </div>
+      )}
     </div>
   );
 }
