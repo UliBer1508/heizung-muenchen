@@ -158,11 +158,17 @@ const CSS = `
 .ef-dots { stroke-dasharray: 0.1 18; animation: ef-move linear infinite; }
 .ef-arc { transition: d .6s ease; }
 @keyframes ef-move { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -18.1; } }
+.ef-compact { --ef-bg: transparent; flex: 0 0 auto; }
+.ef-compact .ef-svg { width: 230px; max-width: 100%; margin: 0; }
+.ef-compact .ef-value { font-size: 19px; }
+.ef-compact .ef-label { font-size: 21px; }
+.ef-compact .ef-note { font-size: 18px; }
+.ef-compact .ef-inv { font-size: 14px; }
 @media (prefers-color-scheme: dark) { .ef-card { --ef-bg: var(--card, var(--surface, #1c1f24)); } }
 @media (prefers-reduced-motion: reduce) { .ef-dots { animation: none; stroke-dasharray: 0.1 9; } }
 `;
 
-export default function EnergyFlow({ energy }) {
+export default function EnergyFlow({ energy, compact = false }) {
   if (!energy) return null;
   const pv = Math.max(0, energy.pv_w ?? 0);
   const grid = energy.grid_w ?? 0;
@@ -182,7 +188,7 @@ export default function EnergyFlow({ energy }) {
   else if (sgn(grid) < 0) gridNote = { text: "Einspeisung", color: C.battery };
 
   return (
-    <div className="card ef-card">
+    <div className={compact ? 'ef-card ef-compact' : 'card ef-card'}>
       <style>{CSS}</style>
       <svg className="ef-svg" viewBox="0 0 400 440" role="img" aria-label="Energiefluss">
         <Flow id="pv" watts={pv} dir={sgn(pv) > 0 ? 1 : 0} color={C.pv} />

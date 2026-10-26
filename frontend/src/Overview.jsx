@@ -20,18 +20,24 @@ function StatusBar({ status, settings }) {
   );
 }
 
-function ModeHero({ status }) {
+function ModeHero({ status, energy }) {
   const m = modeMeta(status?.house_mode);
   const pending = status?.pending_mode ? modeMeta(status.pending_mode) : null;
   return (
-    <section className={`card hero tone-${m.tone}`}>
-      <div className="eyebrow">Betriebsmodus</div>
-      <div className="hero-mode">{m.label}</div>
-      <div className="hero-reason">{status?.mode_reason || m.hint}</div>
-      <div className="muted small">
-        seit {fmtTime(status?.mode_since)}
-        {pending && <> · Wechsel zu <strong>{pending.label}</strong> wartet auf Haltezeit</>}
+    <section
+      className={`card hero tone-${m.tone}`}
+      style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}
+    >
+      <div style={{ flex: '1 1 180px', minWidth: 0 }}>
+        <div className="eyebrow">Betriebsmodus</div>
+        <div className="hero-mode">{m.label}</div>
+        <div className="hero-reason">{status?.mode_reason || m.hint}</div>
+        <div className="muted small">
+          seit {fmtTime(status?.mode_since)}
+          {pending && <> · Wechsel zu <strong>{pending.label}</strong> wartet auf Haltezeit</>}
+        </div>
       </div>
+      <EnergyFlow energy={energy} compact />
     </section>
   );
 }
@@ -221,10 +227,9 @@ export default function Overview({ data, reload }) {
       <StatusBar status={data.status} settings={data.settings} />
       {data.status?.last_error && <div className="alert">Letzter Fehler: {data.status.last_error}</div>}
       <div className="grid-2">
-        <ModeHero status={data.status} />
+        <ModeHero status={data.status} energy={data.energy} />
         <Energy e={data.energy} />
       </div>
-      <EnergyFlow energy={data.energy} />
       <Forecast f={data.forecast} />
       <div className="rooms">
         {data.rooms.filter((r) => r.enabled).map((r) => (
