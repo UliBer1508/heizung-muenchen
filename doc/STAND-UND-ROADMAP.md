@@ -119,7 +119,7 @@ Namen ohne Umlaute verwenden (z. B. „Buero“), sonst drohen 404-Fehler beim W
 - **Analyse – Prognose** (seit 0.6): Urteil, ob die FENECON-Prognose treffsicher genug für die Steuerung ist,
   Abweichung je Vorhersagezeitraum (1–24 h), Mittagsprognose (morgens und vom Vortag) gegen gemessene PV je Tag.
 - **Protokoll:** jede Entscheidung mit Begründung.
-- **Einstellungen:** Testmodus, Automatik, **Heizplan je Raum** (seit 0.5), Tagesablauf, PV-Stufen, Schwellwerte, Grundlast,
+- **Einstellungen:** Testmodus, Automatik, **Heizplan je Raum** (seit 0.5; seit 0.6.2 einklappbar, mit den resultierenden Sollwerten je Tageszeit und mit Sonne sowie dem Hinweis, dass die Wärmepumpe nach eigenem Zeitprogramm heizt), Tagesablauf, PV-Stufen, Schwellwerte, Grundlast,
   Temperaturen je Raum.
 
 ### 2.5 Raumtemperaturen (°C) – Startwerte vom 23.10.2026

@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { supabase } from './supabase.js';
-import { PRIO_LABEL } from './lib.js';
 
 const HOUSE_FIELDS = [
   { group: 'Tagesablauf', fields: [
@@ -52,12 +51,16 @@ function Field({ f, value, onChange }) {
 }
 
 const PLAN_FLAGS = [
-  { k: 'heat_morning', l: 'Morgens' },
-  { k: 'heat_day', l: 'Tagsüber' },
-  { k: 'heat_evening', l: 'Abends' },
+  { k: 'heat_morning', l: 'Morgens', from: 'morning_start', to: 'morning_end' },
+  { k: 'heat_day', l: 'Tagsüber', from: 'morning_end', to: 'evening_start' },
+  { k: 'heat_evening', l: 'Abends', from: 'evening_start', to: 'night_start' },
 ];
 
-function Heizplan({ rooms, reload, setMsg }) {
+const deg = (v) => (v == null ? '–' : `${Number(v).toLocaleString('de-DE', { maximumFractionDigits: 1 })} °C`);
+const hh = (t) => (t ? String(t).slice(0, 5).replace(/^0/, '').replace(':00', '') : '?');
+
+function Heizplan({ rooms, settings, reload, setMsg }) {
+  const temps = Object.fromEntries(rooms.map((r) => [r.id, r]));
   const [plan, setPlan] = useState(() => rooms.map((r) => ({
     id: r.id, name: r.name, heat_morning: !!r.heat_morning, heat_day: !!r.heat_day,
     heat_evening: !!r.heat_evening, pv_prio: r.pv_prio ?? 2,
@@ -93,41 +96,59 @@ function Heizplan({ rooms, reload, setMsg }) {
   return (
     <section className="card">
       <button type="button" className="collapse-head" onClick={toggle} aria-expanded={open}>
-        <span className="section-title">Heizplan</span>
+        <span className="section-title">Heizplan <span className="plan-sub">Raum-Sollwerte je Tageszeit</span></span>
         <span className={`collapse-sum ${dirty ? 'warn-text' : ''}`}>{dirty ? 'Nicht gespeicherte Änderungen' : open ? '' : summary}</span>
         <span className={`collapse-chev ${open ? 'open' : ''}`} aria-hidden="true">▶</span>
       </button>
       {open && <>
-      <div className="muted small">
-        Haken = der Raum wird in dieser Tageszeit auf <strong>Normal</strong> gehalten, sonst auf seinem <strong>Absenkwert</strong>.
-        Nachts sind alle Räume abgesenkt. <strong>PV-Priorität</strong>: Bei Überschuss laden zuerst die Räume mit Prio 1 den Estrich,
-        bei mehr Überschuss Prio 2, dann Prio 3. „nie“ = dieser Raum wird nicht mit PV aufgeheizt.
+      <div className="notice-warn small">
+        Die <strong>Wärmepumpe</strong> heizt nach ihrem eigenen Zeitprogramm. Dieser Plan legt fest, <strong>welche Räume</strong> dabei
+        Wärme bekommen – über die Sollwerte der Loxone-Raumregler. Wann geheizt wird, ist erst steuerbar, wenn die Wärmepumpe am LAN hängt.
+      </div>
+      <div className="muted small plan-help">
+        <strong>Haken</strong> = in dieser Tageszeit <strong>Normal</strong>, ohne Haken <strong>Absenk</strong>. Die Zahl zeigt den Sollwert, den der Raum dann bekommt.
+        Abends nur, wenn der Akku ≥ {settings.reserve_soc ?? 60} % ist. Nachts ({hh(settings.night_start)}–{hh(settings.morning_start)} Uhr) sind alle Räume auf Absenk.
+        <strong> Mit Sonne</strong>: Bei PV-Überschuss bekommt der Raum ab der gewählten Stufe seinen PV-Wert
+        (Stufe 1 ab {((settings.surplus_on_w ?? 1500) / 1000).toLocaleString('de-DE')} kW, die nächste Stufe, wenn trotz Heizung noch genug übrig ist).
+        Es gilt immer der <strong>höhere</strong> Wert. Die Temperaturen selbst stellst du unten je Raum ein.
       </div>
       <div className="plan-wrap">
         <table className="plan-table">
           <thead>
             <tr>
               <th>Raum</th>
-              {PLAN_FLAGS.map((f) => <th key={f.k}>{f.l}</th>)}
-              <th>PV-Priorität</th>
+              {PLAN_FLAGS.map((f) => (
+                <th key={f.k}>{f.l}<div className="plan-time">{hh(settings[f.from])}–{hh(settings[f.to])} Uhr</div></th>
+              ))}
+              <th className="hide-sm">Mit Sonne<div className="plan-time">PV-Stufe</div></th>
             </tr>
           </thead>
           <tbody>
-            {plan.map((r) => (
-              <tr key={r.id}>
-                <td>{r.name}</td>
-                {PLAN_FLAGS.map((f) => (
-                  <td key={f.k} className="c">
-                    <input type="checkbox" aria-label={`${r.name} ${f.l}`} checked={r[f.k]} onChange={(e) => set(r.id, f.k, e.target.checked)} />
-                  </td>
-                ))}
-                <td className="c">
-                  <select value={r.pv_prio} onChange={(e) => set(r.id, 'pv_prio', Number(e.target.value))} aria-label={`${r.name} PV-Priorität`}>
-                    {[1, 2, 3, 0].map((p) => <option key={p} value={p}>{PRIO_LABEL[p]}</option>)}
+            {plan.map((r) => {
+              const t = temps[r.id] || {};
+              const sun = (room, tt) => (
+                <>
+                  <select value={room.pv_prio} onChange={(e) => set(room.id, 'pv_prio', Number(e.target.value))} aria-label={`${room.name} PV-Stufe`}>
+                    {[1, 2, 3, 0].map((p) => <option key={p} value={p}>{p === 0 ? 'nie' : `ab Stufe ${p}`}</option>)}
                   </select>
-                </td>
-              </tr>
-            ))}
+                  <div className="plan-t on sun">{room.pv_prio > 0 ? <>{deg(tt.temp_pv)} · voll {deg(tt.temp_full)}</> : 'kein PV'}</div>
+                </>
+              );
+              return (
+                <tr key={r.id}>
+                  <td>{r.name}<div className="show-sm plan-sun-sm">☀ {sun(r, t)}</div></td>
+                  {PLAN_FLAGS.map((f) => (
+                    <td key={f.k} className="c">
+                      <label className="plan-cell">
+                        <input type="checkbox" aria-label={`${r.name} ${f.l}`} checked={r[f.k]} onChange={(e) => set(r.id, f.k, e.target.checked)} />
+                        <span className={r[f.k] ? 'plan-t on' : 'plan-t'}>{deg(r[f.k] ? t.temp_normal : t.temp_night)}</span>
+                      </label>
+                    </td>
+                  ))}
+                  <td className="c hide-sm">{sun(r, t)}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -205,7 +226,7 @@ export default function Settings({ data, reload }) {
       {data.rooms.length > 0 && data.rooms[0].pv_prio === undefined ? (
         <div className="alert">Für den Heizplan bitte zuerst <strong>supabase/migration-005-raumprofile.sql</strong> in Supabase ausführen.</div>
       ) : (
-        <Heizplan rooms={data.rooms} reload={reload} setMsg={setMsg} />
+        <Heizplan rooms={data.rooms} settings={s} reload={reload} setMsg={setMsg} />
       )}
 
       <section className="card">
