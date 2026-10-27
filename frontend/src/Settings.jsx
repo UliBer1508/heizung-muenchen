@@ -64,6 +64,16 @@ function Heizplan({ rooms, reload, setMsg }) {
   })));
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [open, setOpen] = useState(() => {
+    try { return localStorage.getItem('plan-open') === '1'; } catch { return false; }
+  });
+  const toggle = () => setOpen((o) => {
+    try { localStorage.setItem('plan-open', o ? '0' : '1'); } catch {}
+    return !o;
+  });
+  const count = (k) => plan.filter((r) => r[k]).length;
+  const prio1 = plan.filter((r) => r.pv_prio === 1).length;
+  const summary = `${plan.length} Räume · morgens ${count('heat_morning')} · tagsüber ${count('heat_day')} · abends ${count('heat_evening')} · PV Prio 1: ${prio1}`;
   const set = (id, k, v) => { setPlan((p) => p.map((r) => (r.id === id ? { ...r, [k]: v } : r))); setDirty(true); };
 
   const save = async () => {
@@ -82,7 +92,12 @@ function Heizplan({ rooms, reload, setMsg }) {
 
   return (
     <section className="card">
-      <div className="section-title">Heizplan</div>
+      <button type="button" className="collapse-head" onClick={toggle} aria-expanded={open}>
+        <span className="section-title">Heizplan</span>
+        <span className={`collapse-sum ${dirty ? 'warn-text' : ''}`}>{dirty ? 'Nicht gespeicherte Änderungen' : open ? '' : summary}</span>
+        <span className={`collapse-chev ${open ? 'open' : ''}`} aria-hidden="true">▶</span>
+      </button>
+      {open && <>
       <div className="muted small">
         Haken = der Raum wird in dieser Tageszeit auf <strong>Normal</strong> gehalten, sonst auf seinem <strong>Absenkwert</strong>.
         Nachts sind alle Räume abgesenkt. <strong>PV-Priorität</strong>: Bei Überschuss laden zuerst die Räume mit Prio 1 den Estrich,
@@ -117,6 +132,7 @@ function Heizplan({ rooms, reload, setMsg }) {
         </table>
       </div>
       <button className="btn primary" disabled={busy || !dirty} onClick={save}>{busy ? 'Speichert …' : 'Heizplan speichern'}</button>
+      </>}
     </section>
   );
 }

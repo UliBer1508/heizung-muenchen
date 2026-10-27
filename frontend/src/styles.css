@@ -326,3 +326,12 @@ select, input[type='number'], input[type='time'], input[type='email'], input[typ
   .fc-table { font-size: 13px; }
   .fc-table th { font-size: 11px; white-space: normal; }
 }
+
+/* Einklappbare Karte (Heizplan) */
+.collapse-head { all: unset; box-sizing: border-box; width: 100%; display: flex; align-items: center; gap: 12px; cursor: pointer; }
+.collapse-head:focus-visible { outline: 2px solid var(--ink); outline-offset: 4px; border-radius: 6px; }
+.collapse-head .section-title { margin-bottom: 0; flex: none; }
+.collapse-sum { flex: 1; min-width: 0; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right; }
+.collapse-chev { flex: none; font-size: 13px; color: var(--muted); transition: transform .2s; }
+.collapse-chev.open { transform: rotate(90deg); }
+.collapse-head[aria-expanded='true'] { margin-bottom: 12px; }
