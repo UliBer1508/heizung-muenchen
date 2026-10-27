@@ -1,21 +1,24 @@
 import { useState } from 'react';
 import { supabase } from './supabase.js';
+import { PRIO_LABEL } from './lib.js';
 
 const HOUSE_FIELDS = [
-  { group: 'Zeiten', fields: [
+  { group: 'Tagesablauf', fields: [
+    { k: 'morning_start', l: 'Morgen ab (Aufstehen)', type: 'time' },
+    { k: 'morning_end', l: 'Morgen bis', type: 'time' },
+    { k: 'evening_start', l: 'Abend ab', type: 'time' },
     { k: 'night_start', l: 'Nacht ab', type: 'time' },
-    { k: 'night_end', l: 'Nacht bis', type: 'time' },
-    { k: 'evening_start', l: 'Abend-Schutz ab', type: 'time' },
   ] },
-  { group: 'PV-Überschuss', fields: [
-    { k: 'surplus_on_w', l: 'PV-Laden ein ab', unit: 'W', step: 100 },
-    { k: 'surplus_off_w', l: 'PV-Laden aus unter', unit: 'W', step: 100 },
+  { group: 'PV-Überschuss (Stufen)', fields: [
+    { k: 'surplus_on_w', l: 'Stufe 1 ein ab Überschuss', unit: 'W', step: 100 },
+    { k: 'stage_up_w', l: 'Nächste Stufe, wenn noch übrig', unit: 'W', step: 100 },
+    { k: 'surplus_off_w', l: 'Stufe zurück, wenn weniger übrig', unit: 'W', step: 100 },
     { k: 'pv_min_soc', l: 'Batterieladung zählt ab', unit: '% SoC', step: 5 },
-    { k: 'hold_minutes', l: 'Mindestdauer je Modus', unit: 'min', step: 5 },
+    { k: 'hold_minutes', l: 'Mindestdauer je Stufe', unit: 'min', step: 5 },
     { k: 'average_minutes', l: 'Glättung der Messwerte', unit: 'min', step: 1 },
   ] },
   { group: 'Batterie', fields: [
-    { k: 'reserve_soc', l: 'Abendreserve', unit: '% SoC', step: 5 },
+    { k: 'reserve_soc', l: 'Abends heizen nur ab Akku', unit: '% SoC', step: 5 },
     { k: 'full_soc', l: '„Voll“ ab', unit: '% SoC', step: 1 },
     { k: 'full_export_w', l: 'und Einspeisung ab', unit: 'W', step: 500 },
   ] },
@@ -25,7 +28,7 @@ const HOUSE_FIELDS = [
 ];
 
 const ROOM_FIELDS = [
-  { k: 'temp_night', l: 'Nacht / Abend-Schutz' },
+  { k: 'temp_night', l: 'Absenk (Nacht / nicht heizen)' },
   { k: 'temp_normal', l: 'Normal' },
   { k: 'temp_pv', l: 'PV-Laden' },
   { k: 'temp_full', l: 'Batterie voll' },
@@ -45,6 +48,76 @@ function Field({ f, value, onChange }) {
         {f.unit && <span className="unit">{f.unit}</span>}
       </span>
     </label>
+  );
+}
+
+const PLAN_FLAGS = [
+  { k: 'heat_morning', l: 'Morgens' },
+  { k: 'heat_day', l: 'Tagsüber' },
+  { k: 'heat_evening', l: 'Abends' },
+];
+
+function Heizplan({ rooms, reload, setMsg }) {
+  const [plan, setPlan] = useState(() => rooms.map((r) => ({
+    id: r.id, name: r.name, heat_morning: !!r.heat_morning, heat_day: !!r.heat_day,
+    heat_evening: !!r.heat_evening, pv_prio: r.pv_prio ?? 2,
+  })));
+  const [busy, setBusy] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const set = (id, k, v) => { setPlan((p) => p.map((r) => (r.id === id ? { ...r, [k]: v } : r))); setDirty(true); };
+
+  const save = async () => {
+    setBusy(true);
+    setMsg(null);
+    for (const r of plan) {
+      const { id, name, ...patch } = r;
+      const { error } = await supabase.from('muc_rooms').update(patch).eq('id', id);
+      if (error) { setMsg({ err: true, t: `${name}: ${error.message}` }); setBusy(false); return; }
+    }
+    setMsg({ t: 'Heizplan gespeichert. Der Collector übernimmt ihn innerhalb einer Minute.' });
+    setDirty(false);
+    await reload();
+    setBusy(false);
+  };
+
+  return (
+    <section className="card">
+      <div className="section-title">Heizplan</div>
+      <div className="muted small">
+        Haken = der Raum wird in dieser Tageszeit auf <strong>Normal</strong> gehalten, sonst auf seinem <strong>Absenkwert</strong>.
+        Nachts sind alle Räume abgesenkt. <strong>PV-Priorität</strong>: Bei Überschuss laden zuerst die Räume mit Prio 1 den Estrich,
+        bei mehr Überschuss Prio 2, dann Prio 3. „nie“ = dieser Raum wird nicht mit PV aufgeheizt.
+      </div>
+      <div className="plan-wrap">
+        <table className="plan-table">
+          <thead>
+            <tr>
+              <th>Raum</th>
+              {PLAN_FLAGS.map((f) => <th key={f.k}>{f.l}</th>)}
+              <th>PV-Priorität</th>
+            </tr>
+          </thead>
+          <tbody>
+            {plan.map((r) => (
+              <tr key={r.id}>
+                <td>{r.name}</td>
+                {PLAN_FLAGS.map((f) => (
+                  <td key={f.k} className="c">
+                    <input type="checkbox" aria-label={`${r.name} ${f.l}`} checked={r[f.k]} onChange={(e) => set(r.id, f.k, e.target.checked)} />
+                  </td>
+                ))}
+                <td className="c">
+                  <select value={r.pv_prio} onChange={(e) => set(r.id, 'pv_prio', Number(e.target.value))} aria-label={`${r.name} PV-Priorität`}>
+                    {[1, 2, 3, 0].map((p) => <option key={p} value={p}>{PRIO_LABEL[p]}</option>)}
+                  </select>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <button className="btn primary" disabled={busy || !dirty} onClick={save}>{busy ? 'Speichert …' : 'Heizplan speichern'}</button>
+    </section>
   );
 }
 
@@ -112,6 +185,12 @@ export default function Settings({ data, reload }) {
           </button>
         </div>
       </section>
+
+      {data.rooms.length > 0 && data.rooms[0].pv_prio === undefined ? (
+        <div className="alert">Für den Heizplan bitte zuerst <strong>supabase/migration-005-raumprofile.sql</strong> in Supabase ausführen.</div>
+      ) : (
+        <Heizplan rooms={data.rooms} reload={reload} setMsg={setMsg} />
+      )}
 
       <section className="card">
         <div className="section-title">Haus</div>

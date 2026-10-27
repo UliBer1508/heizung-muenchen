@@ -89,7 +89,7 @@ test('Ein Durchlauf: Überschuss → KG Bad bekommt PV-Sollwert', async () => {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hm-'));
   // Mittagszeit erzwingen: Nachtfenster so legen, dass "jetzt" nie drin ist
   fs.writeFileSync(path.join(stateDir, 'cache.json'), JSON.stringify({
-    settings: { dry_run: false, night_start: '00:00', night_end: '00:00', evening_start: '23:59' },
+    settings: { dry_run: false, night_start: '00:00', morning_start: '00:00', morning_end: '00:00', evening_start: '00:00' },
     rooms: [{
       id: 'kg_bad', name: 'KG Bad', loxone_temp_name: 'Temp KG Bad', loxone_setpoint_name: 'API_Boost_Bad',
       loxone_valve_name: 'Bad KG', temp_night: 19, temp_normal: 21, temp_pv: 23, temp_full: 24,
@@ -113,11 +113,12 @@ test('Ein Durchlauf: Überschuss → KG Bad bekommt PV-Sollwert', async () => {
   });
   fems.close();
   lox.server.close();
-  assert.match(out, /Modus: – → PV_LADEN/);
+  assert.match(out, /Modus: – → PV_1/);
   assert.match(out, /KG Bad: Soll 21 → 23 °C/);
   assert.ok(lox.calls.some((c) => c.name === 'API_Boost_Bad' && c.cmd === '23.0'), out);
   const cache = JSON.parse(fs.readFileSync(path.join(stateDir, 'cache.json'), 'utf8'));
-  assert.equal(cache.house.mode, 'PV_LADEN');
+  assert.equal(cache.house.mode, 'PV_1');
+  assert.equal(cache.house.level, 1);
 });
 
 test('evcc-Ladeleistung aus /api/state (alt und neu)', async () => {

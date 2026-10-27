@@ -63,9 +63,20 @@ Namen ohne Umlaute verwenden (z. B. „Buero“), sonst drohen 404-Fehler beim W
 - Node.js ohne Zusatzpakete, läuft jede Minute:
   FENECON lesen → Loxone lesen → Modus bestimmen → Sollwerte setzen → Supabase.
 - **Heizlogik läuft lokal** – das Haus funktioniert auch ohne Internet.
-- Betriebsmodi: NACHT (20–9 Uhr) · NORMAL · PV-LADEN (Überschuss ≥ 1,5 kW) ·
-  BATTERIE VOLL (SoC ≥ 95 % und ≥ 3 kW) · ABEND-SCHUTZ (ab 16 Uhr, SoC < 40 %) · Manuell (Override).
-- Haltezeit 30 min, Hysterese, Sicherheitsgrenzen 5–26 °C (zusätzlich zu Loxone),
+- **Seit 0.5.0: Heizplan je Raum** (ersetzt die alten Hausmodi NORMAL/PV-LADEN/ABEND-SCHUTZ):
+  - **Tagesphasen** (in der App einstellbar): Nacht 22–6 · Morgen 6–9 · Tag 9–17 · Abend 17–22.
+  - **Je Raum** Haken *Morgens / Tagsüber / Abends*: in dieser Phase auf **Normal**, sonst auf
+    dem **Absenkwert** (`temp_night`). Nachts sind alle Räume abgesenkt, der Estrich gibt die Wärme ab.
+    *Abends* nur, wenn der Akku ≥ „Abends heizen nur ab Akku“ (Standard 60 %) ist.
+  - **PV-Stufen 1–3**: Stufe 1 ab 1,5 kW Überschuss → Räume mit PV-Prio 1 bekommen ihren PV-Wert.
+    Ist trotz Heizung noch ≥ 1 kW übrig, kommt die nächste Stufe (Prio 2, dann Prio 3) dazu.
+    Fällt der Rest unter 300 W, geht es eine Stufe zurück. Mindestdauer je Stufe 30 min.
+    Prio „nie“ = Raum wird nie mit PV aufgeheizt.
+  - **Batterie voll** (SoC ≥ 95 % und ≥ 3 kW Export): alle PV-Räume auf „Voll“.
+  - Sollwert = höherer Wert aus Phase und PV-Stufe. Override hat immer Vorrang.
+  - Vorbelegung (Migration 005): Kern = EG Küche/Essbereich, EG Büro, EG WC (morgens + tagsüber, Prio 1);
+    abends Küche und Wohnzimmer; Schlafräume und Ankleide Prio 3; übrige Prio 2.
+- Haltezeit, Hysterese, Sicherheitsgrenzen 5–26 °C (zusätzlich zu Loxone),
   ohne FENECON-Daten sicherer Normalbetrieb.
 - Sollwert wird alle 2 h bestätigt (falls Loxone neu gestartet hat).
 - Seit 0.2.0: Auto-Ladeleistung (evcc, nur lesend).
@@ -73,7 +84,7 @@ Namen ohne Umlaute verwenden (z. B. „Buero“), sonst drohen 404-Fehler beim W
   alle 15 min per REST (App „REST/JSON lesend“, Gastpasswort `user`) die Kanäle
   `weather0/*` (App „Wetter“) und `predictor*/*` (Erzeugungs- und Verbrauchsprognose).
   Daraus kommt auch die Außentemperatur. Open-Meteo nur noch als Notlösung, wenn das FEMS keine Temperatur liefert.
-- 18 automatische Tests (Logik, Modbus, Loxone, FEMS-REST, kompletter Durchlauf).
+- 21 automatische Tests (Logik, Modbus, Loxone, FEMS-REST, kompletter Durchlauf).
 
 ### 2.3 Datenbank (Supabase)
 
@@ -143,8 +154,8 @@ Namen ohne Umlaute verwenden (z. B. „Buero“), sonst drohen 404-Fehler beim W
 - Entscheiden: SG-Ready über FENECON **oder** Modbus über den Collector – nur ein System steuert die Wärmepumpe.
 
 ### Phase 4 – Weitere Räume
-- ✅ KG Bad, DG (3 Räume) und OG (6 Räume) erledigt.
-- **Offen: Erdgeschoss** – Vorgehen siehe Abschnitt 7.
+- ✅ Alle 15 beheizten Räume erledigt: KG Bad, DG (3), OG (6), EG (5: Büro, Eingang, Küche/Essbereich, Wohnzimmer, WC) – 27.10.2026.
+- Vorgehen für weitere Räume siehe Abschnitt 7.
 - Je Raum dieselben drei Loxone-Schritte und eine Zeile in `muc_rooms`. Kein Code nötig.
 - Vorrang für Räume mit großer Estrichfläche (speichern am meisten PV-Wärme).
 - Hinweis: Sobald die App ϑch steuert, wirkt die Komforttemperatur der Loxone-App für diesen Raum nicht mehr.

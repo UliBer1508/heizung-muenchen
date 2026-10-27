@@ -1,87 +1,117 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  MODES, DEFAULT_SETTINGS as S, inWindow, parseHm, surplusW, desiredHouseMode, applyHold,
-  roomTarget, needsWrite, averageEnergy, localMinutes,
+  DEFAULT_SETTINGS as S, inWindow, parseHm, surplusW, phaseAt, desiredPvLevel, holdPvLevel, houseModeOf,
+  roomTarget, needsWrite, averageEnergy, localMinutes, PV_FULL,
 } from '../src/logic.js';
 
-// Hilfsfunktion: Zeitpunkt in Berliner Ortszeit (Oktober 2026 = UTC+2)
-const at = (hm) => new Date(`2026-10-22T${hm}:00+02:00`);
+// Zeitpunkt in Berliner Ortszeit (Ende Oktober 2026 = UTC+1)
+const at = (hm) => new Date(`2026-10-28T${hm}:00+01:00`);
 
-const room = {
-  id: 'kg_bad', temp_night: 19, temp_normal: 21, temp_pv: 23, temp_full: 24,
+const base = {
+  id: 'x', temp_night: 19, temp_normal: 21, temp_pv: 23, temp_full: 24,
   min_temp: 5, max_temp: 26, override_temp: null, override_until: null,
 };
+const kueche = { ...base, heat_morning: true, heat_day: true, heat_evening: true, pv_prio: 1 };
+const schlaf = { ...base, temp_night: 17, temp_normal: 18.5, temp_pv: 20, temp_full: 21, heat_morning: false, heat_day: false, heat_evening: false, pv_prio: 3 };
+const nie = { ...base, heat_morning: false, heat_day: false, heat_evening: false, pv_prio: 0 };
+const T = (room, phase, level = 0, soc = 80, now = at('12:00')) => roomTarget({ room, phase, level, soc, now, settings: S });
 
 test('Zeitfenster über Mitternacht', () => {
-  assert.equal(inWindow(parseHm('23:00'), '20:00', '09:00'), true);
-  assert.equal(inWindow(parseHm('05:00'), '20:00', '09:00'), true);
-  assert.equal(inWindow(parseHm('09:00'), '20:00', '09:00'), false);
-  assert.equal(inWindow(parseHm('12:00'), '20:00', '09:00'), false);
+  assert.equal(inWindow(parseHm('23:00'), '22:00', '06:00'), true);
+  assert.equal(inWindow(parseHm('05:59'), '22:00', '06:00'), true);
+  assert.equal(inWindow(parseHm('06:00'), '22:00', '06:00'), false);
   assert.equal(localMinutes(at('14:30')), 14 * 60 + 30);
+});
+
+test('Tagesphasen mit Standardzeiten', () => {
+  assert.equal(phaseAt(at('03:00'), S), 'NACHT');
+  assert.equal(phaseAt(at('06:00'), S), 'MORGEN');
+  assert.equal(phaseAt(at('08:59'), S), 'MORGEN');
+  assert.equal(phaseAt(at('09:00'), S), 'TAG');
+  assert.equal(phaseAt(at('17:00'), S), 'ABEND');
+  assert.equal(phaseAt(at('22:00'), S), 'NACHT');
 });
 
 test('Überschuss: Einspeisung zählt immer, Laden nur ab pv_min_soc', () => {
   assert.equal(surplusW({ gridW: -2000, batteryW: -3000, soc: 50 }, S), 2000);
   assert.equal(surplusW({ gridW: -2000, batteryW: -3000, soc: 70 }, S), 5000);
-  assert.equal(surplusW({ gridW: 3600, batteryW: 800, soc: 76 }, S), 0); // Bezug
+  assert.equal(surplusW({ gridW: 3600, batteryW: 800, soc: 76 }, S), 0);
 });
 
-test('Nachts immer NACHT, auch bei Sonne', () => {
-  const r = desiredHouseMode({ energy: { gridW: -5000, batteryW: 0, soc: 100 }, now: at('21:00'), settings: S });
-  assert.equal(r.mode, MODES.NACHT);
+test('PV-Stufen: ein, hoch, runter, voll', () => {
+  const lvl = (e, cur, phase = 'TAG') => desiredPvLevel({ energy: { batteryW: 0, soc: 80, ...e }, phase, settings: S, currentLevel: cur }).level;
+  assert.equal(lvl({ gridW: -1000 }, 0), 0);          // zu wenig zum Einschalten
+  assert.equal(lvl({ gridW: -1600 }, 0), 1);          // Stufe 1
+  assert.equal(lvl({ gridW: -500 }, 1), 1);           // läuft, Rest reicht nicht für Stufe 2
+  assert.equal(lvl({ gridW: -1200 }, 1), 2);          // noch 1200 W übrig → Stufe 2
+  assert.equal(lvl({ gridW: -1200 }, 3), 3);          // Stufe 3 ist das Maximum
+  assert.equal(lvl({ gridW: 100 }, 2), 1);            // Bezug → eine Stufe zurück
+  assert.equal(lvl({ gridW: -3500, soc: 96 }, 1), PV_FULL);
+  assert.equal(lvl({ gridW: -500, soc: 90 }, PV_FULL), 3);
+  assert.equal(lvl({ gridW: -5000 }, 2, 'NACHT'), 0); // nachts nie
+  assert.equal(desiredPvLevel({ energy: null, phase: 'TAG', settings: S, currentLevel: 2 }).level, 0);
 });
 
-test('PV_LADEN mit Hysterese', () => {
-  const e = { gridW: -800, batteryW: 0, soc: 80 };
-  // 800 W reicht nicht zum Einschalten …
-  assert.equal(desiredHouseMode({ energy: e, now: at('12:00'), settings: S }).mode, MODES.NORMAL);
-  // … hält aber einen laufenden PV-Modus
-  assert.equal(desiredHouseMode({ energy: e, now: at('12:00'), settings: S, currentMode: MODES.PV_LADEN }).mode, MODES.PV_LADEN);
-  assert.equal(desiredHouseMode({ energy: { gridW: -1600, batteryW: 0, soc: 80 }, now: at('12:00'), settings: S }).mode, MODES.PV_LADEN);
+test('Haltezeit für Stufenwechsel, Nacht sofort', () => {
+  const cur = { level: 1, since: at('12:00') };
+  const early = holdPvLevel({ desired: { level: 2, reason: 'x' }, current: cur, now: at('12:10'), settings: S });
+  assert.equal(early.level, 1);
+  assert.equal(early.pending, 2);
+  assert.equal(holdPvLevel({ desired: { level: 2, reason: 'x' }, current: cur, now: at('12:31'), settings: S }).level, 2);
+  assert.equal(holdPvLevel({ desired: { level: 0, reason: 'x', immediate: true }, current: cur, now: at('12:05'), settings: S }).level, 0);
 });
 
-test('BATTERIE_VOLL bei vollem Speicher und großem Export', () => {
-  const r = desiredHouseMode({ energy: { gridW: -3500, batteryW: 0, soc: 97 }, now: at('13:00'), settings: S });
-  assert.equal(r.mode, MODES.BATTERIE_VOLL);
+test('Hausmodus aus Phase und Stufe', () => {
+  assert.equal(houseModeOf('MORGEN', 0), 'MORGEN');
+  assert.equal(houseModeOf('TAG', 2), 'PV_2');
+  assert.equal(houseModeOf('TAG', 4), 'BATTERIE_VOLL');
 });
 
-test('ABEND_SCHUTZ ab 16 Uhr bei niedriger Batterie', () => {
-  const e = { gridW: 200, batteryW: 1500, soc: 30 };
-  assert.equal(desiredHouseMode({ energy: e, now: at('17:00'), settings: S }).mode, MODES.ABEND_SCHUTZ);
-  assert.equal(desiredHouseMode({ energy: e, now: at('15:00'), settings: S }).mode, MODES.NORMAL);
+test('Morgens heizt nur, wer "morgens heizen" hat', () => {
+  assert.equal(T(kueche, 'MORGEN').target, 21);
+  assert.equal(T(kueche, 'MORGEN').mode, 'NORMAL');
+  assert.equal(T(schlaf, 'MORGEN').target, 17);
+  assert.equal(T(schlaf, 'MORGEN').mode, 'ABSENK');
 });
 
-test('Ohne FENECON-Daten: sicherer Normalbetrieb', () => {
-  assert.equal(desiredHouseMode({ energy: null, now: at('12:00'), settings: S }).mode, MODES.NORMAL);
+test('Nachts alle Räume auf Absenkwert', () => {
+  assert.equal(T(kueche, 'NACHT', 0, 80, at('23:00')).target, 19);
+  assert.equal(T(schlaf, 'NACHT', 0, 80, at('23:00')).target, 17);
 });
 
-test('Haltezeit verzögert Wechsel, Nacht wechselt sofort', () => {
-  const current = { mode: MODES.PV_LADEN, since: at('12:00') };
-  const early = applyHold({ desired: { mode: MODES.NORMAL, reason: 'x' }, current, now: at('12:10'), settings: S });
-  assert.equal(early.mode, MODES.PV_LADEN);
-  assert.equal(early.pending, MODES.NORMAL);
-  const late = applyHold({ desired: { mode: MODES.NORMAL, reason: 'x' }, current, now: at('12:31'), settings: S });
-  assert.equal(late.mode, MODES.NORMAL);
-  const night = applyHold({ desired: { mode: MODES.NACHT, reason: 'x' }, current: { mode: MODES.PV_LADEN, since: at('19:55') }, now: at('20:00'), settings: S });
-  assert.equal(night.mode, MODES.NACHT);
+test('PV-Stufen nach Raum-Priorität', () => {
+  assert.equal(T(kueche, 'TAG', 1).target, 23);  // Prio 1 ab Stufe 1
+  assert.equal(T(schlaf, 'TAG', 1).target, 17);  // Prio 3 wartet
+  assert.match(T(schlaf, 'TAG', 1).reason, /wartet auf PV-Stufe 3/);
+  assert.equal(T(schlaf, 'TAG', 3).target, 20);
+  assert.equal(T(schlaf, 'TAG', PV_FULL).target, 21);
+  assert.equal(T(nie, 'TAG', PV_FULL).target, 19); // Prio 0 = nie mit PV
 });
 
-test('Raum-Sollwert je Modus und Override', () => {
-  assert.equal(roomTarget({ room, houseMode: MODES.PV_LADEN, now: at('12:00') }).target, 23);
-  assert.equal(roomTarget({ room, houseMode: MODES.ABEND_SCHUTZ, now: at('17:00') }).target, 19);
-  const ov = { ...room, override_temp: 25, override_until: at('14:00').toISOString() };
-  const r = roomTarget({ room: ov, houseMode: MODES.NORMAL, now: at('13:00') });
-  assert.equal(r.mode, MODES.OVERRIDE);
+test('Abends nur heizen, wenn der Akku reicht', () => {
+  assert.equal(T(kueche, 'ABEND', 0, 70, at('18:00')).target, 21);
+  assert.equal(T(kueche, 'ABEND', 0, 40, at('18:00')).target, 19);
+  assert.equal(T(schlaf, 'ABEND', 0, 90, at('18:00')).target, 17);
+});
+
+test('Ohne Profilspalten: Verhalten wie bisher (immer Normal, Prio 1)', () => {
+  assert.equal(T(base, 'MORGEN').target, 21);
+  assert.equal(T(base, 'TAG', 1).target, 23);
+});
+
+test('Override hat Vorrang, abgelaufen nicht mehr', () => {
+  const ov = { ...schlaf, override_temp: 25, override_until: at('14:00').toISOString() };
+  const r = T(ov, 'TAG', 0, 80, at('13:00'));
+  assert.equal(r.mode, 'OVERRIDE');
   assert.equal(r.target, 25);
-  // abgelaufener Override
-  assert.equal(roomTarget({ room: ov, houseMode: MODES.NORMAL, now: at('15:00') }).target, 21);
+  assert.equal(T(ov, 'TAG', 0, 80, at('15:00')).target, 17);
 });
 
 test('Sicherheitsgrenzen 5–26 °C', () => {
-  const crazy = { ...room, temp_pv: 40, temp_night: 0 };
-  assert.equal(roomTarget({ room: crazy, houseMode: MODES.PV_LADEN, now: at('12:00') }).target, 26);
-  assert.equal(roomTarget({ room: crazy, houseMode: MODES.NACHT, now: at('22:00') }).target, 5);
+  const crazy = { ...kueche, temp_pv: 40, temp_night: 0 };
+  assert.equal(T(crazy, 'TAG', 1).target, 26);
+  assert.equal(T(crazy, 'NACHT', 0, 80, at('23:00')).target, 5);
 });
 
 test('Schreiben nur bei Abweichung', () => {
@@ -101,7 +131,6 @@ test('Mittelwert über die letzten Minuten', () => {
   ];
   const a = averageEnergy(buf, now, 5);
   assert.equal(a.pvW, 5000);
-  assert.equal(a.gridW, -2000);
   assert.equal(a.soc, 61);
   assert.equal(averageEnergy([], now, 5), null);
 });

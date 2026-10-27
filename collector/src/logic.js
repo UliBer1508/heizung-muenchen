@@ -4,8 +4,8 @@
 // Wasser-Fußbodenheizung + Wärmepumpe):
 //   * Die App setzt pro Raum nur die Komforttemperatur (ϑch) im Loxone-Raumregler.
 //   * Loxone regelt das Ventil selbst (Hysterese, Frostschutz bleiben aktiv).
-//   * Der Modus des Hauses bestimmt den Sollwert: NACHT / NORMAL / PV_LADEN /
-//     BATTERIE_VOLL / ABEND_SCHUTZ. Ein manueller Override hat immer Vorrang.
+//   * Ab 0.5: Tagesphase + PV-Stufe + Raumprofil bestimmen den Sollwert je Raum
+//     (siehe unten). Ein manueller Override hat immer Vorrang.
 
 export const MODES = Object.freeze({
   OVERRIDE: 'OVERRIDE',
@@ -59,84 +59,118 @@ export function surplusW({ gridW, batteryW, soc }, settings) {
   return Math.round(exportW + (countCharge ? chargeW : 0));
 }
 
-/**
- * Gewünschter Modus des Hauses (ohne Haltezeit).
- * energy: gemittelte Werte der letzten Minuten oder null, wenn FENECON fehlt.
- */
-export function desiredHouseMode({ energy, now, settings, currentMode }) {
+// ---------------------------------------------------------------------------
+// Ab Version 0.5: Tagesphasen + PV-Stufen + Raumprofile
+//
+//   Tagesphase (nur Uhrzeit):  NACHT → MORGEN → TAG → ABEND → NACHT
+//   PV-Stufe (nur Energie):    0 = kein Überschuss, 1–3 = Räume mit Priorität ≤ Stufe
+//                              bekommen ihren PV-Wert, 4 = Batterie voll → alle "Voll"
+//   Raumprofil (je Raum):      heat_morning / heat_day / heat_evening = in dieser Phase
+//                              auf Normal halten, sonst Absenkwert (temp_night);
+//                              pv_prio 0 = nie mit PV aufheizen, 1 = zuerst … 3 = zuletzt
+// Sollwert eines Raums = max(Grundwert der Phase, PV-Wert der Stufe).
+// ---------------------------------------------------------------------------
+
+export const PHASES = Object.freeze({ NACHT: 'NACHT', MORGEN: 'MORGEN', TAG: 'TAG', ABEND: 'ABEND' });
+export const PV_FULL = 4;
+
+/** Tagesphase zur Uhrzeit. */
+export function phaseAt(now, settings) {
   const min = localMinutes(now, settings.timezone);
-  if (inWindow(min, settings.night_start, settings.night_end)) {
-    return { mode: MODES.NACHT, reason: `Nachtfenster ${settings.night_start}–${settings.night_end}` };
-  }
-  if (!energy) {
-    return { mode: MODES.NORMAL, reason: 'Keine FENECON-Daten – sicherer Normalbetrieb' };
-  }
+  if (inWindow(min, settings.night_start, settings.morning_start)) return PHASES.NACHT;
+  if (inWindow(min, settings.morning_start, settings.morning_end)) return PHASES.MORGEN;
+  if (inWindow(min, settings.evening_start, settings.night_start)) return PHASES.ABEND;
+  return PHASES.TAG;
+}
+
+export const PHASE_LABEL = { NACHT: 'Nacht', MORGEN: 'Morgen', TAG: 'Tag', ABEND: 'Abend' };
+
+/**
+ * Gewünschte PV-Stufe (ohne Haltezeit).
+ * Gemessen wird der Überschuss NACH dem, was die Heizung schon verbraucht:
+ *   – noch genug übrig (≥ stage_up_w)  → eine Stufe höher
+ *   – fast nichts mehr übrig (< surplus_off_w) → eine Stufe niedriger
+ */
+export function desiredPvLevel({ energy, phase, settings, currentLevel = 0 }) {
+  if (phase === PHASES.NACHT) return { level: 0, reason: 'Nacht – keine PV-Aktionen', immediate: true };
+  if (!energy) return { level: 0, reason: 'Keine FENECON-Daten – kein PV-Aufheizen', immediate: true };
   const surplus = surplusW(energy, settings);
   const soc = energy.soc;
+  const cur = Math.max(0, Math.min(PV_FULL, currentLevel || 0));
 
-  if (soc >= settings.full_soc && surplus >= settings.full_export_w) {
-    return { mode: MODES.BATTERIE_VOLL, reason: `SoC ${soc} % ≥ ${settings.full_soc} %, Überschuss ${surplus} W` };
+  if (soc != null && soc >= settings.full_soc && surplus >= settings.full_export_w) {
+    return { level: PV_FULL, reason: `Akku ${soc} % ≥ ${settings.full_soc} % und Überschuss ${surplus} W` };
   }
-  const pvActive = currentMode === MODES.PV_LADEN || currentMode === MODES.BATTERIE_VOLL;
-  const threshold = pvActive ? settings.surplus_off_w : settings.surplus_on_w;
-  if (surplus >= threshold) {
-    return {
-      mode: MODES.PV_LADEN,
-      reason: pvActive
-        ? `Überschuss ${surplus} W ≥ Aus-Schwelle ${settings.surplus_off_w} W`
-        : `Überschuss ${surplus} W ≥ Ein-Schwelle ${settings.surplus_on_w} W`,
-    };
+  if (cur === PV_FULL) {
+    // Batterie nicht mehr voll bzw. weniger Export → zurück auf die höchste normale Stufe
+    return surplus >= settings.surplus_off_w
+      ? { level: 3, reason: `Überschuss ${surplus} W – zurück auf Stufe 3` }
+      : { level: 2, reason: `Überschuss nur ${surplus} W – zurück auf Stufe 2` };
   }
-  if (min >= parseHm(settings.evening_start) && soc < settings.reserve_soc) {
-    return { mode: MODES.ABEND_SCHUTZ, reason: `Ab ${settings.evening_start} und SoC ${soc} % < Reserve ${settings.reserve_soc} %` };
+  if (cur === 0) {
+    return surplus >= settings.surplus_on_w
+      ? { level: 1, reason: `Überschuss ${surplus} W ≥ ${settings.surplus_on_w} W → Stufe 1` }
+      : { level: 0, reason: `Kein Überschuss (${surplus} W)` };
   }
-  return { mode: MODES.NORMAL, reason: `Kein Überschuss (${surplus} W)` };
+  if (surplus < settings.surplus_off_w) {
+    return { level: cur - 1, reason: `Überschuss nur ${surplus} W < ${settings.surplus_off_w} W → Stufe ${cur - 1}` };
+  }
+  if (cur < 3 && surplus >= settings.stage_up_w) {
+    return { level: cur + 1, reason: `Noch ${surplus} W übrig ≥ ${settings.stage_up_w} W → Stufe ${cur + 1}` };
+  }
+  return { level: cur, reason: `Stufe ${cur}, Überschuss ${surplus} W` };
 }
 
 /**
- * Haltezeit: Ein Moduswechsel wird erst nach `hold_minutes` umgesetzt.
- * Ausnahmen (sofort): Wechsel in/aus NACHT, erster Lauf.
+ * Haltezeit für die PV-Stufe: Wechsel erst nach `hold_minutes` seit dem letzten Wechsel.
+ * Sofort: erster Lauf, Nacht, fehlende Daten.
  */
-export function applyHold({ desired, current, now, settings }) {
-  if (!current || !current.mode) {
-    return { mode: desired.mode, reason: desired.reason, since: now, changed: true };
+export function holdPvLevel({ desired, current, now, settings }) {
+  if (!current || current.level == null) {
+    return { level: desired.level, since: now, reason: desired.reason, changed: true };
   }
-  if (desired.mode === current.mode) {
-    return { mode: current.mode, reason: desired.reason, since: current.since, changed: false };
+  if (desired.level === current.level) {
+    return { level: current.level, since: current.since, reason: desired.reason, changed: false };
   }
-  const immediate = desired.mode === MODES.NACHT || current.mode === MODES.NACHT;
   const heldMin = (now - new Date(current.since)) / 60000;
-  if (immediate || heldMin >= settings.hold_minutes) {
-    return { mode: desired.mode, reason: desired.reason, since: now, changed: true };
+  if (desired.immediate || heldMin >= settings.hold_minutes) {
+    return { level: desired.level, since: now, reason: desired.reason, changed: true };
   }
   const rest = Math.ceil(settings.hold_minutes - heldMin);
   return {
-    mode: current.mode,
-    reason: `Haltezeit: ${desired.mode} gewünscht, Wechsel in ${rest} min (${desired.reason})`,
+    level: current.level,
     since: current.since,
+    reason: `Stufe ${current.level} – Wechsel auf ${desired.level} in ${rest} min (${desired.reason})`,
     changed: false,
-    pending: desired.mode,
+    pending: desired.level,
   };
+}
+
+/** Anzeige-Modus des Hauses aus Phase und Stufe (für Status, Protokoll, Analyse). */
+export function houseModeOf(phase, level) {
+  if (level >= PV_FULL) return 'BATTERIE_VOLL';
+  if (level > 0) return `PV_${level}`;
+  return phase;
 }
 
 export function clamp(v, lo, hi) {
   return Math.min(hi, Math.max(lo, v));
 }
 
-const MODE_TEMP_FIELD = {
-  [MODES.NACHT]: 'temp_night',
-  [MODES.NORMAL]: 'temp_normal',
-  [MODES.PV_LADEN]: 'temp_pv',
-  [MODES.BATTERIE_VOLL]: 'temp_full',
-  [MODES.ABEND_SCHUTZ]: 'temp_night',
-};
-
 export function overrideActive(room, now) {
   return room.override_temp != null && room.override_until != null && new Date(room.override_until) > now;
 }
 
-/** Sollwert für einen Raum. */
-export function roomTarget({ room, houseMode, now }) {
+// Fehlen die neuen Spalten (Migration 005 noch nicht ausgeführt), verhält sich
+// ein Raum wie bisher: in allen Phasen Normal, PV-Priorität 1.
+const flag = (v) => (v == null ? true : Boolean(v));
+const prioOf = (room) => (room.pv_prio == null ? 1 : Number(room.pv_prio));
+
+/**
+ * Sollwert für einen Raum.
+ * Raum-Modi: OVERRIDE | VOLL | PV | NORMAL | ABSENK
+ */
+export function roomTarget({ room, phase, level = 0, soc = null, now, settings }) {
   const lo = Math.max(HARD_MIN, room.min_temp ?? HARD_MIN);
   const hi = Math.min(HARD_MAX, room.max_temp ?? HARD_MAX);
   if (overrideActive(room, now)) {
@@ -146,8 +180,42 @@ export function roomTarget({ room, houseMode, now }) {
       reason: `Manuell bis ${new Date(room.override_until).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' })}`,
     };
   }
-  const field = MODE_TEMP_FIELD[houseMode];
-  return { mode: houseMode, target: clamp(Number(room[field]), lo, hi), reason: null };
+
+  // 1) Grundwert nach Tagesphase und Raumprofil
+  let heat = false;
+  let why;
+  if (phase === PHASES.MORGEN) {
+    heat = flag(room.heat_morning);
+    why = heat ? 'morgens heizen' : 'morgens nicht heizen';
+  } else if (phase === PHASES.TAG) {
+    heat = flag(room.heat_day);
+    why = heat ? 'tagsüber heizen' : 'tagsüber nur mit PV';
+  } else if (phase === PHASES.ABEND) {
+    const wants = flag(room.heat_evening);
+    const socOk = soc == null || soc >= settings.reserve_soc;
+    heat = wants && socOk;
+    why = !wants ? 'abends nicht heizen' : socOk ? 'abends heizen' : `abends nicht – Akku ${soc} % < ${settings.reserve_soc} %`;
+  } else {
+    why = 'Nacht – Wärme aus dem Estrich';
+  }
+  const base = Number(heat ? room.temp_normal : room.temp_night);
+  let mode = heat ? 'NORMAL' : 'ABSENK';
+  let target = base;
+  let reason = `${PHASE_LABEL[phase] || phase}: ${why}`;
+
+  // 2) PV-Aufheizen nach Priorität
+  const prio = prioOf(room);
+  if (prio > 0 && level >= PV_FULL) {
+    const t = Number(room.temp_full);
+    if (t > target) { target = t; mode = 'VOLL'; reason = 'Batterie voll – Estrich maximal laden'; }
+  } else if (prio > 0 && level >= prio) {
+    const t = Number(room.temp_pv);
+    if (t > target) { target = t; mode = 'PV'; reason = `PV-Stufe ${level} (Raum-Prio ${prio}) – Estrich laden`; }
+  } else if (prio > 0 && mode === 'ABSENK' && phase !== PHASES.NACHT) {
+    reason += ` · wartet auf PV-Stufe ${prio}`;
+  }
+
+  return { mode, target: clamp(target, lo, hi), reason };
 }
 
 /** Muss der Sollwert in Loxone geschrieben werden? */
@@ -182,13 +250,15 @@ export const DEFAULT_SETTINGS = Object.freeze({
   timezone: 'Europe/Berlin',
   automation_enabled: true,
   dry_run: true,
-  night_start: '20:00',
-  night_end: '09:00',
-  evening_start: '16:00',
-  surplus_on_w: 1500,
-  surplus_off_w: 300,
+  night_start: '22:00',
+  morning_start: '06:00',
+  morning_end: '09:00',
+  evening_start: '17:00',
+  surplus_on_w: 1500,   // Stufe 1 ein ab diesem Überschuss
+  stage_up_w: 1000,     // nächste Stufe, wenn trotz Heizung noch so viel übrig ist
+  surplus_off_w: 300,   // eine Stufe zurück, wenn weniger übrig ist
   pv_min_soc: 60,
-  reserve_soc: 40,
+  reserve_soc: 60,      // abends nur heizen, wenn der Akku mindestens so voll ist
   full_soc: 95,
   full_export_w: 3000,
   hold_minutes: 30,

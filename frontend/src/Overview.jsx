@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { supabase } from './supabase.js';
-import { fmtW, fmtT, fmtTime, minutesAgo, modeMeta, weatherText, clockIn } from './lib.js';
+import { fmtW, fmtT, fmtTime, minutesAgo, modeMeta, weatherText, clockIn, profileText } from './lib.js';
 import EnergyFlow from './EnergyFlow.jsx';
 
 function StatusBar({ status, settings }) {
@@ -156,6 +156,7 @@ function RoomCard({ room, reading, reload }) {
         <div>
           <div className="room-name">{room.name}</div>
           <div className="muted small">Messung {fmtTime(reading?.ts)}</div>
+          {profileText(room) && <div className="muted small">{profileText(room)}</div>}
         </div>
         <span className={`pill ${m.tone}`}>{m.label}</span>
       </div>
@@ -209,7 +210,7 @@ function RoomCard({ room, reading, reload }) {
         {err && <div className="alert">{err}</div>}
       </div>
       <div className="room-temps muted small">
-        Nacht {fmtT(room.temp_night)} · Normal {fmtT(room.temp_normal)} · PV {fmtT(room.temp_pv)} · Voll {fmtT(room.temp_full)}
+        Absenk {fmtT(room.temp_night)} · Normal {fmtT(room.temp_normal)} · PV {fmtT(room.temp_pv)} · Voll {fmtT(room.temp_full)}
       </div>
     </section>
   );

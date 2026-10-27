@@ -10,10 +10,10 @@ import { Db } from './db.js';
 import { readOutdoorTemp, readEvccChargePower } from './extras.js';
 import { readFemsForecast } from './fems-rest.js';
 import {
-  DEFAULT_SETTINGS, averageEnergy, desiredHouseMode, applyHold, roomTarget, needsWrite, surplusW,
+  DEFAULT_SETTINGS, averageEnergy, phaseAt, desiredPvLevel, holdPvLevel, houseModeOf, roomTarget, needsWrite, surplusW,
 } from './logic.js';
 
-const VERSION = '0.4.0';
+const VERSION = '0.5.0';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const stateDir = process.env.STATE_DIR || path.join(here, '..', 'state');
 const cacheFile = path.join(stateDir, 'cache.json');
@@ -54,7 +54,8 @@ const lox = new LoxoneClient(cfg.loxone);
 // Laufzeitzustand
 const buffer = []; // Messpuffer FENECON (letzte 30 min)
 const lastWritten = new Map(); // roomId -> { target, at }
-let house = null; // { mode, since, reason }
+let house = null; // { mode, phase, level, levelSince, since, reason, pending }
+let profileColsWarned = false;
 let cache = loadCache();
 let lastCleanupDay = null;
 let outdoor = { temp: null, source: null, at: 0 }; // letzte Außentemperatur
@@ -107,7 +108,12 @@ async function tick() {
   await loadConfig();
   const settings = { ...DEFAULT_SETTINGS, ...(cache.settings || {}) };
   const dryRun = cfg.forceDryRun || settings.dry_run;
-  if (!house && cache.house) house = cache.house;
+  if (!house && cache.house) {
+    // Cache aus Version ≤ 0.4 (nur "mode") auf PV-Stufe umrechnen
+    const h = cache.house;
+    const level = h.level ?? (h.mode === 'BATTERIE_VOLL' ? 4 : h.mode === 'PV_LADEN' ? 1 : 0);
+    house = { ...h, level, levelSince: h.levelSince ?? h.since };
+  }
 
   // 1) FENECON
   let feneconOk = true;
@@ -122,16 +128,33 @@ async function tick() {
   const energy = averageEnergy(buffer, now, settings.average_minutes);
   const latest = feneconOk ? buffer[buffer.length - 1] : null;
 
-  // 2) Modus des Hauses
-  const desired = desiredHouseMode({ energy, now, settings, currentMode: house?.mode });
-  const held = applyHold({ desired, current: house, now, settings });
-  if (held.changed) {
-    log(`Modus: ${house?.mode ?? '–'} → ${held.mode} (${held.reason})`);
+  // 2) Tagesphase + PV-Stufe
+  const phase = phaseAt(now, settings);
+  const desired = desiredPvLevel({ energy, phase, settings, currentLevel: house?.level ?? 0 });
+  const held = holdPvLevel({
+    desired, current: house ? { level: house.level, since: house.levelSince } : null, now, settings,
+  });
+  const mode = houseModeOf(phase, held.level);
+  const modeChanged = !house || house.mode !== mode;
+  if (modeChanged) {
+    log(`Modus: ${house?.mode ?? '–'} → ${mode} (${held.reason})`);
     await safeDb('decision', () => db.insert('muc_decisions', [{
-      kind: 'mode', mode: held.mode, reason: held.reason, dry_run: dryRun,
+      kind: 'mode', mode, reason: held.reason, dry_run: dryRun,
     }]));
   }
-  house = { mode: held.mode, since: held.since, reason: held.reason, pending: held.pending ?? null };
+  house = {
+    mode,
+    phase,
+    level: held.level,
+    levelSince: held.since,
+    since: modeChanged ? now : house.since,
+    reason: held.reason,
+    pending: held.pending != null ? houseModeOf(phase, held.pending) : null,
+  };
+  if (!profileColsWarned && cache.rooms.length && cache.rooms[0].pv_prio === undefined) {
+    log('Hinweis: Raumprofile fehlen – supabase/migration-005-raumprofile.sql ausführen (bis dahin heizen alle Räume wie bisher)');
+    profileColsWarned = true;
+  }
 
   // 3) Räume
   let loxoneOk = true;
@@ -142,7 +165,7 @@ async function tick() {
       loxoneOk = false;
       errors.push(...state.errors.map((m) => `${room.name}: ${m}`));
     }
-    const t = roomTarget({ room, houseMode: house.mode, now });
+    const t = roomTarget({ room, phase, level: house.level, soc: energy?.soc ?? null, now, settings });
     const lw = lastWritten.get(room.id);
     let written = false;
 

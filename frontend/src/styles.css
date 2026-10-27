@@ -304,3 +304,12 @@ select, input[type='number'], input[type='time'], input[type='email'], input[typ
 .fc-cell .small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fc-value { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 @media (max-width: 640px) { .forecast-row { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
+/* Heizplan (Einstellungen) */
+.plan-wrap { overflow-x: auto; margin: 12px 0; }
+.plan-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.plan-table th { text-align: left; font-weight: 600; font-size: 12px; color: var(--muted, #777); padding: 6px 8px; border-bottom: 1px solid var(--line, #e5e2da); white-space: nowrap; }
+.plan-table td { padding: 6px 8px; border-bottom: 1px solid var(--line, #e5e2da); }
+.plan-table td.c, .plan-table th:not(:first-child) { text-align: center; }
+.plan-table input[type=checkbox] { width: 18px; height: 18px; }
+.plan-table select { font: inherit; padding: 2px 4px; }

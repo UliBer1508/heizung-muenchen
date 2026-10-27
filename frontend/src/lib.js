@@ -1,11 +1,38 @@
 export const MODE_META = {
-  NACHT: { label: 'Nacht', tone: 'night', hint: 'Absenkung, keine PV-Aktionen' },
-  NORMAL: { label: 'Normal', tone: 'neutral', hint: 'Normaler Tagbetrieb' },
-  PV_LADEN: { label: 'PV-Laden', tone: 'sun', hint: 'Überschuss → Estrich wird geladen' },
+  // Tagesphasen (Haus, ohne Überschuss)
+  NACHT: { label: 'Nacht', tone: 'night', hint: 'Alle Räume abgesenkt – Wärme aus dem Estrich' },
+  MORGEN: { label: 'Morgen', tone: 'neutral', hint: 'Nur Räume mit „morgens heizen“ auf Normal' },
+  TAG: { label: 'Tag', tone: 'neutral', hint: 'Räume mit „tagsüber heizen“ auf Normal, übrige warten auf PV' },
+  ABEND: { label: 'Abend', tone: 'cool', hint: 'Nur Räume mit „abends heizen“, wenn der Akku reicht' },
+  // PV-Stufen (Haus)
+  PV_1: { label: 'PV Stufe 1', tone: 'sun', hint: 'Überschuss → Räume mit Prio 1 laden den Estrich' },
+  PV_2: { label: 'PV Stufe 2', tone: 'sun', hint: 'Überschuss → Räume mit Prio 1–2 laden den Estrich' },
+  PV_3: { label: 'PV Stufe 3', tone: 'sun', hint: 'Überschuss → alle PV-Räume laden den Estrich' },
   BATTERIE_VOLL: { label: 'Batterie voll', tone: 'green', hint: 'Speicher voll, Überschuss maximal nutzen' },
-  ABEND_SCHUTZ: { label: 'Abend-Schutz', tone: 'cool', hint: 'Batterie schonen für den Abend' },
+  // Raum
+  NORMAL: { label: 'Normal', tone: 'neutral', hint: 'Raum auf Normaltemperatur' },
+  ABSENK: { label: 'Absenk', tone: 'night', hint: 'Raum auf Absenkwert' },
+  PV: { label: 'PV', tone: 'sun', hint: 'Raum lädt den Estrich mit Sonnenstrom' },
+  VOLL: { label: 'Voll', tone: 'green', hint: 'Batterie voll – maximal laden' },
   OVERRIDE: { label: 'Manuell', tone: 'rose', hint: 'Manueller Sollwert aktiv' },
+  // ältere Einträge im Protokoll (bis Version 0.4)
+  PV_LADEN: { label: 'PV-Laden', tone: 'sun', hint: 'Überschuss → Estrich wird geladen' },
+  ABEND_SCHUTZ: { label: 'Abend-Schutz', tone: 'cool', hint: 'Batterie schonen für den Abend' },
 };
+
+export const PRIO_LABEL = { 0: 'nie', 1: 'Prio 1', 2: 'Prio 2', 3: 'Prio 3' };
+
+/** Kurzbeschreibung des Raumprofils, z. B. „morgens · tagsüber · PV Prio 1“ */
+export function profileText(r) {
+  if (r.pv_prio === undefined) return null; // Migration 005 fehlt
+  const parts = [];
+  if (r.heat_morning) parts.push('morgens');
+  if (r.heat_day) parts.push('tagsüber');
+  if (r.heat_evening) parts.push('abends');
+  if (!parts.length) parts.push('nur Absenkwert');
+  parts.push(r.pv_prio > 0 ? `PV ${PRIO_LABEL[r.pv_prio]}` : 'kein PV-Laden');
+  return parts.join(' · ');
+}
 
 export const modeMeta = (m) => MODE_META[m] || { label: m || '–', tone: 'neutral', hint: '' };
 
