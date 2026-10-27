@@ -1,6 +1,6 @@
 # Heizung München – Projektstand und Roadmap
 
-Stand: 23.10.2026 · Collector-Version 0.4.0
+Stand: 27.10.2026 · Collector-Version 0.6.0
 
 Dieses Dokument fasst zusammen, was bisher umgesetzt wurde, welche Phasen noch offen sind
 und was darüber hinaus empfehlenswert ist. Technische Details stehen in
@@ -37,10 +37,11 @@ und was darüber hinaus empfehlenswert ist. Technische Details stehen in
 - FENECON-Werte (SoC, Netz, PV, Batterie) per Modbus in Loxone eingebunden (Seite „PV-Überschuss“).
 - Getestet: Software kann über einen virtuellen Eingang die Komforttemperatur (ϑch) eines
   Raumreglers setzen – Loxone öffnet/schließt dann das Ventil selbst.
-- **Zehn Räume** eingerichtet (KG, DG, OG), je Raum: eindeutiger Fühlername, eindeutiger Ventilname,
-  virtueller Eingang → ϑch, Validierung 5–26 °C, Standardwert = bisherige Komforttemperatur,
-  „Standardwert bei Start“, nicht in der Visualisierung. Alle zehn liefern Temperatur, Sollwert und Ventil (geprüft 23.10.2026).
-- **Noch nicht eingerichtet: Erdgeschoss** (siehe Abschnitt 7).
+- **Alle 15 beheizten Räume** eingerichtet (KG, DG, OG am 23.10., EG am 27.10.2026), je Raum: eindeutiger Fühlername,
+  eindeutiger Ventilname, virtueller Eingang → ϑch, Validierung 5–26 °C, Standardwert = bisherige Komforttemperatur,
+  „Standardwert bei Start“, nicht in der Visualisierung.
+- Die Tabelle unten zeigt KG, DG und OG. **EG** (Büro, Eingang, Küche/Essbereich, Wohnzimmer, WC): Die exakten
+  Loxone-Namen stehen in `muc_rooms` – Abfrage siehe Abschnitt 7 („Kontrolle“).
 
 | Raum | ID (App) | Fühler | Virtueller Eingang | Ventil |
 |---|---|---|---|---|
@@ -84,7 +85,10 @@ Namen ohne Umlaute verwenden (z. B. „Buero“), sonst drohen 404-Fehler beim W
   alle 15 min per REST (App „REST/JSON lesend“, Gastpasswort `user`) die Kanäle
   `weather0/*` (App „Wetter“) und `predictor*/*` (Erzeugungs- und Verbrauchsprognose).
   Daraus kommt auch die Außentemperatur. Open-Meteo nur noch als Notlösung, wenn das FEMS keine Temperatur liefert.
-- 21 automatische Tests (Logik, Modbus, Loxone, FEMS-REST, kompletter Durchlauf).
+- **Seit 0.6.0: Tagesprotokoll** – beim ersten Lauf nach „Morgen ab“ speichert der Collector einmal täglich
+  (`muc_capture_day_context`), was das FEMS für den Tag vorhersagt, welche Einstellungen und welcher Heizplan gelten.
+  Kein Eingriff in die Steuerung.
+- 22 automatische Tests (Logik, Modbus, Loxone, FEMS-REST, kompletter Durchlauf).
 
 ### 2.3 Datenbank (Supabase)
 
@@ -94,6 +98,11 @@ Namen ohne Umlaute verwenden (z. B. „Buero“), sonst drohen 404-Fehler beim W
 - Auswertungsfunktionen: Tageskennzahlen, Tagesverlauf, Raumkennzahlen, Raumverlauf.
 - `muc_forecast` (seit migration-004): Wetter und Prognose alle 15 min, dauerhaft – Grundlage, um die
   Treffsicherheit der FENECON-Prognose zu prüfen, bevor die Steuerung sie nutzt.
+- `muc_rooms` mit Raumprofil (seit migration-005): morgens / tagsüber / abends heizen, PV-Priorität.
+- **Seit migration-006:** `muc_day_context` (Tagesprotokoll, ab 23.10. aus den Prognosen nachgetragen),
+  `muc_forecast_accuracy()` (Treffsicherheit je Vorhersagezeitraum), `muc_range_context()` (Mittag: Prognose gegen Messung),
+  View `muc_day_patterns` (Protokoll + Tagesergebnis + Heizgradzahl – Grundlage für Stufe B).
+  Korrektur: „Netzbezug nachts“ zählt seit 0.5 bis „Morgen ab“ statt bis `night_end`.
 
 ### 2.4 Web-App (Vercel, PWA)
 
@@ -107,12 +116,18 @@ Namen ohne Umlaute verwenden (z. B. „Buero“), sonst drohen 404-Fehler beim W
 - **Analyse – Woche / Monat / Jahr:** dieselben vier Fragen (PV, Batterie, Wärmepumpe, Auto) als Balken je Tag bzw. Monat,
   Wärmepumpe mit Außentemperatur, Heizstrom nach Tageszeit, Räume mit Ventil-Stunden und Temperaturverlauf.
   Tageswerte werden nachts dauerhaft gespeichert (`muc_daily_stats`).
+- **Analyse – Prognose** (seit 0.6): Urteil, ob die FENECON-Prognose treffsicher genug für die Steuerung ist,
+  Abweichung je Vorhersagezeitraum (1–24 h), Mittagsprognose (morgens und vom Vortag) gegen gemessene PV je Tag.
 - **Protokoll:** jede Entscheidung mit Begründung.
-- **Einstellungen:** Testmodus, Automatik, Zeiten, Schwellwerte, Grundlast, Temperaturen je Raum und Modus.
+- **Einstellungen:** Testmodus, Automatik, **Heizplan je Raum** (seit 0.5), Tagesablauf, PV-Stufen, Schwellwerte, Grundlast,
+  Temperaturen je Raum.
 
-### 2.5 Aktuelle Raumtemperaturen (°C)
+### 2.5 Raumtemperaturen (°C) – Startwerte vom 23.10.2026
 
-| Raum | Nacht / Abend-Schutz | Normal | PV-Laden | Batterie voll |
+Seit 0.5 heißen die Spalten in der App *Absenk / Normal / PV-Laden / Batterie voll*. Die EG-Räume starteten mit
+19,5 / 21 / 22,5 / 23 °C. Aktuelle Werte stehen in der App unter *Einstellungen*.
+
+| Raum | Absenk | Normal | PV-Laden | Batterie voll |
 |---|---|---|---|---|
 | KG Bad | 15 | 16 | 21 | 23 |
 | DG Bad | 20 | 21 | 24 | 24,5 |
@@ -160,19 +175,27 @@ Namen ohne Umlaute verwenden (z. B. „Buero“), sonst drohen 404-Fehler beim W
 - Vorrang für Räume mit großer Estrichfläche (speichern am meisten PV-Wärme).
 - Hinweis: Sobald die App ϑch steuert, wirkt die Komforttemperatur der Loxone-App für diesen Raum nicht mehr.
 
-### Phase 5 – Vorausschauende Steuerung
+### Phase 5 – Vorausschauende Steuerung (KI wie in Venediger)
 - ✅ Schritt 1 (0.4.0): Wetter und PV-Prognose vom FEMS werden gespeichert und in der App angezeigt – **noch ohne Eingriff in die Steuerung**.
-- Schritt 2 (nach 1–2 Wochen Daten): Treffsicherheit prüfen (Prognose „Ahead“ gegen gemessene PV bzw. „Realized“).
-- Schritt 3: Steuerung nutzt die Prognose –
+- ✅ **Stufe A / Schritt 2 (0.6.0, migration-006):** Tagesprotokoll (Prognose am Morgen, Einstellungen, Heizplan) und
+  Treffsicherheit in der App (*Analyse → Prognose*). Urteil ab 10 Tagen. Weiterhin ohne Eingriff in die Steuerung.
+- **Stufe B (ab ca. 2–3 Wochen Protokoll):** Tagestypen und „ähnliche Tage“ aus `muc_day_patterns`
+  (PV-Prognose, Außentemperatur, Heizgradzahl) → welche Einstellungen hatten an ähnlichen Tagen den geringsten
+  Netzbezug der Heizung bei eingehaltenen Raumtemperaturen? Anzeige als Empfehlung mit Vergleich „Plan gegen Ergebnis“.
+- **Stufe C – KI-Tagesplan:** Der Collector fragt um 06:00 (Korrektur 11:00) ein Sprachmodell (z. B. Claude Haiku) mit Prognose,
+  ähnlichen Tagen und Raumkennzahlen → Plan in einer Tabelle (Vorheizfenster, Morgenheizung je Raum, Akkureserve für den Abend).
+  Der Collector setzt den Plan nur innerhalb der Einstellungen um; ohne Internet oder ohne Plan gelten die heutigen Regeln.
+  Schalter in der App: *KI-Plan aus / nur anzeigen / aktiv*. Lehre aus Venediger: kein dauerhafter Schattenbetrieb ohne Vergleich –
+  der Nutzen wird an Netzbezug je Heizgradtag gemessen.
+- Schritt 3 (Regeln, die die Prognose nutzen – Grundlage für B und C):
   morgens nicht aus Batterie/Netz heizen, wenn mittags viel Sonne kommt;
   vor kalten Nächten mit trübem Folgetag nachmittags mit PV vorheizen;
   an trüben Tagen früherer Abend-Schutz (Verbrauchsprognose `predictor2` hilft abzuschätzen, ob die Batterie bis morgens reicht).
 - Verfügbare FEMS-Kanäle: Temperatur jetzt / in 4–24 h, Tages-Min/Max, Wetterlage (WMO-Schlüssel),
   Sonnenscheindauer heute, PV-Leistung in 1/3/6/12/24/36 h, Hausverbrauch in 1/3/6/12/24/36 h.
   Einschränkung: nur diese Zeitpunkte, keine Stundenkurve.
-- Hinweis: Im FEMS ist die „netzdienliche Beladung“ (`ctrlGridOptimizedCharge0`) aktiv und nutzt dieselbe Prognose.
-- Automatische Empfehlungen aus den Raumkennzahlen (z. B. „DG Bad hält Wärme 5 h – PV-Temperatur +0,5 °C“),
-  optional KI-Tagesplan wie in Venediger.
+- Hinweis: Die „netzdienliche Beladung“ im FEMS (`ctrlGridOptimizedCharge0`) nutzt dieselbe Prognose; sie wurde am 22.10.2026 für die evcc-Einstellungen ausgeschaltet.
+- Automatische Empfehlungen aus den Raumkennzahlen (z. B. „DG Bad hält Wärme 5 h – PV-Temperatur +0,5 °C“) – Teil von Stufe B.
 
 ---
 
@@ -207,7 +230,7 @@ Die Punkte 1 und 2 kann der Heizungsbauer beim Termin für das LAN-Kabel mit erl
 | Alle FEMS-Kanäle ansehen | `curl.exe -s -u x:user "http://192.168.188.59/rest/channel/.*/.*" -o fems-kanaele.json` |
 | Sofort nichts mehr schalten | App → Einstellungen → Automatik **Aus** (oder `FORCE_DRY_RUN=1` in `.env` + Neustart) |
 | Datenbank-Änderungen | Supabase → SQL Editor → Datei aus `supabase/` ausführen |
-| Web-App | Vercel baut nach jedem Commit automatisch neu |
+| Web-App | Vercel baut nach jedem Commit automatisch neu. Zeigt der Browser danach noch die alte Version: **Strg + Umschalt + R** (PWA-Zwischenspeicher) |
 
 **Notfall:** Collector stoppen (`nssm stop HeizungMuenchen`) – Loxone behält den letzten Wert,
 nach einem Miniserver-Neustart gilt der Standardwert des virtuellen Eingangs. Ganz zurück:

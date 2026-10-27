@@ -1,6 +1,6 @@
 # Konzept – PV-gesteuerte Fußbodenheizung München
 
-Stand: 22.10.2026 · Version 0.1 (Pilot: nur **KG Bad**)
+Stand: 27.10.2026 · Version 0.6 (alle 15 Räume). Ursprünglich Pilot 0.1 mit KG Bad – Projektstand und Roadmap in [`STAND-UND-ROADMAP.md`](STAND-UND-ROADMAP.md).
 
 ## Ziel
 
@@ -45,7 +45,20 @@ Unterschied zu Venediger: Die Logik läuft **im Collector**, nicht als Edge Func
 Das Haus funktioniert auch ohne Internet, und es gibt kein „im Repo, aber nicht deployt“.
 Supabase dient nur als Speicher und als Brücke zur App.
 
-## Betriebsmodi
+## Steuerung ab 0.5: Tagesphasen, PV-Stufen, Raumprofile
+
+Die Betriebsmodi unten waren die Logik bis 0.4. Seit 0.5 gilt (Details in `collector/src/logic.js`):
+
+- **Tagesphasen** (in der App einstellbar): Nacht (*Nacht ab* bis *Morgen ab*) · Morgen · Tag · Abend (*Abend ab*).
+- **Raumprofil:** je Raum *morgens / tagsüber / abends heizen* → in dieser Phase **Normal**, sonst **Absenkwert**.
+  Nachts alle Räume abgesenkt, der Estrich gibt die Wärme ab. Abends nur, wenn der Akku ≥ *Abends heizen nur ab Akku*.
+- **PV-Stufen 1–3:** ab *Stufe 1 ein* (1,5 kW) heizen Räume mit PV-Prio 1 auf ihren PV-Wert; bleibt trotzdem ≥ *Nächste Stufe*
+  (1 kW) übrig, kommt Prio 2, dann Prio 3 dazu; unter *Stufe zurück* (300 W) eine Stufe runter; Haltezeit je Stufe.
+- **Batterie voll** (SoC ≥ 95 % und ≥ 3 kW Einspeisung): alle PV-Räume auf *Voll*.
+- Sollwert = höherer Wert aus Phase und PV-Stufe. Override hat immer Vorrang.
+- **Tagesprotokoll (0.6):** einmal am Morgen Prognose + Einstellungen speichern – Grundlage der vorausschauenden Steuerung.
+
+## Betriebsmodi (bis 0.4, zur Einordnung älterer Protokolleinträge)
 
 Jede Minute misst der Collector, glättet über 5 Minuten und bestimmt den Modus:
 
@@ -93,13 +106,17 @@ Rechte (RLS, Grants) werden nur auf die `muc_`-Tabellen vergeben.
 | `muc_decisions` | Moduswechsel, geschriebene Sollwerte, Fehler |
 | `muc_collector_status` | Lebenszeichen und aktueller Modus |
 | `muc_history()` | verdichteter Verlauf für die Grafiken |
+| `muc_daily_stats`, `muc_room_daily_stats` | Tageswerte dauerhaft (migration-003) |
+| `muc_forecast` | Wetter und PV-/Verbrauchsprognose vom FEMS alle 15 min (migration-004) |
+| `muc_day_context` | Tagesprotokoll: Prognose am Morgen, Einstellungen, Heizplan (migration-006) |
+| `muc_day_patterns` | Tagesprotokoll + Tagesergebnis – Grundlage für Muster und KI-Plan (migration-006) |
 
 ## Ausbau (nach erfolgreichem Pilot)
 
-1. Weitere Räume: je Raum ein virtueller Eingang auf ϑch + eine Zeile in `rooms`.
+1. ✅ Weitere Räume: je Raum ein virtueller Eingang auf ϑch + eine Zeile in `muc_rooms` (alle 15 erledigt).
    Kein Code nötig.
 2. Raumauswahl nach Priorität/Estrichfläche bei knappem Überschuss.
-3. PV-Prognose (Forecast.Solar) → nachts tiefer absenken, wenn morgen Sonne kommt.
+3. ✅ PV-Prognose vom FEMS (statt Forecast.Solar) wird gespeichert und bewertet; Nutzung in der Steuerung → Phase 5.
 4. Wärmepumpe: SG-Ready-Kontakt oder Modbus (WP muss ins Netz) → Warmwasser-Boost.
 5. Strommessung an der WP → echte Bewertung „Heizung aus PV in %“.
 6. Abstimmung mit evcc, damit Auto und Heizung nicht um denselben Überschuss streiten.

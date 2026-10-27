@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   DEFAULT_SETTINGS as S, inWindow, parseHm, surplusW, phaseAt, desiredPvLevel, holdPvLevel, houseModeOf,
-  roomTarget, needsWrite, averageEnergy, localMinutes, PV_FULL,
+  roomTarget, needsWrite, averageEnergy, localMinutes, PV_FULL, shouldCaptureDayContext,
 } from '../src/logic.js';
 
 // Zeitpunkt in Berliner Ortszeit (Ende Oktober 2026 = UTC+1)
@@ -133,4 +133,11 @@ test('Mittelwert über die letzten Minuten', () => {
   assert.equal(a.pvW, 5000);
   assert.equal(a.soc, 61);
   assert.equal(averageEnergy([], now, 5), null);
+});
+
+test('Tagesprotokoll: einmal am Tag, nicht nachts', () => {
+  assert.equal(shouldCaptureDayContext({ phase: 'NACHT', today: '2026-10-28', lastCapturedDay: null }), false);
+  assert.equal(shouldCaptureDayContext({ phase: 'MORGEN', today: '2026-10-28', lastCapturedDay: '2026-10-27' }), true);
+  assert.equal(shouldCaptureDayContext({ phase: 'TAG', today: '2026-10-28', lastCapturedDay: '2026-10-28' }), false);
+  assert.equal(shouldCaptureDayContext({ phase: 'ABEND', today: '2026-10-28', lastCapturedDay: null }), true); // Start am Abend
 });

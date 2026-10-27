@@ -11,9 +11,10 @@ import { readOutdoorTemp, readEvccChargePower } from './extras.js';
 import { readFemsForecast } from './fems-rest.js';
 import {
   DEFAULT_SETTINGS, averageEnergy, phaseAt, desiredPvLevel, holdPvLevel, houseModeOf, roomTarget, needsWrite, surplusW,
+  shouldCaptureDayContext,
 } from './logic.js';
 
-const VERSION = '0.5.0';
+const VERSION = '0.6.0';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const stateDir = process.env.STATE_DIR || path.join(here, '..', 'state');
 const cacheFile = path.join(stateDir, 'cache.json');
@@ -64,6 +65,8 @@ let forecastTableWarned = false;
 let evccWarned = false;
 let missingColsWarned = false;
 let lastDailyStore = null; // Datum (Berlin), an dem die Tageswerte zuletzt gespeichert wurden
+let lastContextDay = null; // Datum (Berlin), an dem das Tagesprotokoll zuletzt erfasst wurde
+let contextWarned = false;
 
 function loadCache() {
   try {
@@ -308,6 +311,23 @@ async function tick() {
 
   // 6) Tageswerte abgeschlossener Tage dauerhaft speichern (beim Start und nach Mitternacht)
   const berlinDay = now.toLocaleDateString('en-CA', { timeZone: settings.timezone || 'Europe/Berlin' });
+
+  // 6a) Tagesprotokoll: Prognose am Morgen + geltende Einstellungen (ab 0.6, migration-006)
+  if (db.enabled && shouldCaptureDayContext({ phase, today: berlinDay, lastCapturedDay: lastContextDay })) {
+    lastContextDay = berlinDay;
+    try {
+      const r = await db.rpc('muc_capture_day_context', { p_version: VERSION });
+      if (r && r !== 'vorhanden') log(`Tagesprotokoll ${berlinDay}: ${r}`);
+      contextWarned = false;
+    } catch (e) {
+      if (!contextWarned) {
+        log(/muc_capture_day_context|PGRST202|42883/.test(e.message)
+          ? 'Hinweis: Tagesprotokoll fehlt – supabase/migration-006-tagesprotokoll.sql ausführen'
+          : `Tagesprotokoll nicht gespeichert: ${e.message}`);
+      }
+      contextWarned = true;
+    }
+  }
   if (db.enabled && lastDailyStore !== berlinDay) {
     lastDailyStore = berlinDay;
     try {

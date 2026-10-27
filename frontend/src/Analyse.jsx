@@ -64,7 +64,7 @@ function SourceBar({ parts, unit = 'kWh', digits = 1 }) {
 // Recharts erkennt nur direkte Kinder – deshalb eine Funktion, die ein Array liefert
 function nightAreas(settings) {
   const s = toH(settings.night_start);
-  const e = toH(settings.night_end);
+  const e = toH(settings.morning_start ?? settings.night_end); // seit 0.5 endet die Nacht mit „Morgen ab“
   const ranges = s > e ? [[0, e], [s, 24]] : [[s, e]];
   return ranges.map(([x1, x2]) => (
     <ReferenceArea key={`n${x1}`} yAxisId="a" x1={x1} x2={x2} fill="var(--night-bg)" fillOpacity={0.6} ifOverflow="hidden" />
@@ -688,6 +688,114 @@ function PeriodRoomsView({ period, date, rooms }) {
   );
 }
 
+/* ------------------------------ Prognose ------------------------------ */
+// Stufe A der vorausschauenden Steuerung: Wie gut trifft die FENECON-Prognose?
+const HZ = { 1: 'in 1 h', 3: 'in 3 h', 6: 'in 6 h', 12: 'in 12 h', 24: 'in 24 h', 36: 'in 36 h' };
+const NEED_DAYS = 10;
+const kW = (w) => (w == null ? '–' : `${(Number(w) / 1000).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} kW`);
+const shortDay = (d) => utc(String(d).slice(0, 10)).toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit', timeZone: 'UTC' }).replace('.,', '');
+const k1 = (w) => (w == null ? '–' : (Number(w) / 1000).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 }));
+
+function forecastVerdict(acc) {
+  const ref = acc.find((a) => a.horizon_h === 6) || acc.find((a) => a.horizon_h === 3);
+  const days = Math.max(0, ...acc.map((a) => a.days || 0));
+  if (!ref || days < NEED_DAYS) {
+    return {
+      tone: 'cool', title: `Noch zu wenige Tage: ${days} von ${NEED_DAYS}`,
+      text: 'Die Prognose wird seit dem 23.10.2026 gespeichert. Ein Urteil ist ab etwa 10 Tagen mit Sonne und Wolken aussagekräftig. Bis dahin steuert die App ohne Prognose.',
+    };
+  }
+  const pct = Number(ref.mae_pct);
+  const bias = ref.real_avg_w ? Math.round((100 * ref.bias_w) / ref.real_avg_w) : 0;
+  const tend = Math.abs(bias) >= 10 ? ` Tendenz: FENECON ${bias > 0 ? 'überschätzt' : 'unterschätzt'} die PV im Mittel um ${Math.abs(bias)} %.` : '';
+  if (pct <= 30) return { tone: 'green', title: `Treffsicher genug für die Steuerung (Abweichung ${pct} %)`, text: `Für ${HZ[ref.horizon_h]} liegt die Prognose im Mittel ${pct} % daneben.${tend} Sie kann morgens für Entscheidungen genutzt werden (z. B. „nicht aus Batterie heizen, mittags kommt Sonne“).` };
+  if (pct <= 50) return { tone: 'sun', title: `Nur grob brauchbar (Abweichung ${pct} %)`, text: `Für ${HZ[ref.horizon_h]} liegt die Prognose im Mittel ${pct} % daneben.${tend} Nur für eindeutige Tage nutzen – sehr sonnig oder sehr trüb.` };
+  return { tone: 'rose', title: `Zu ungenau für die Steuerung (Abweichung ${pct} %)`, text: `Für ${HZ[ref.horizon_h]} liegt die Prognose im Mittel ${pct} % daneben.${tend} Die Steuerung sollte sich nicht darauf verlassen.` };
+}
+
+function ForecastView({ period, date }) {
+  const range = period === 'day' ? { from: shiftDate(date, -13), to: date } : rangeOf(period, date);
+  const acc = useRpc('muc_forecast_accuracy', { p_from: range.from, p_to: range.to }, [range.from, range.to]);
+  const ctx = useRpc('muc_range_context', { p_from: range.from, p_to: range.to }, [range.from, range.to]);
+  const err = acc.error || ctx.error;
+  if (err) return <div className="alert">{err}{/muc_forecast_accuracy|muc_range_context/.test(err) ? ' – bitte supabase/migration-006-tagesprotokoll.sql ausführen.' : ''}</div>;
+  if (acc.loading || ctx.loading) return <div className="muted">Lade Prognose-Auswertung …</div>;
+  const rows = acc.data || [];
+  const days = (ctx.data || []).filter((d) => d.fc_noon_w != null || d.fc_prev_noon_w != null || d.real_noon_w != null);
+  if (rows.length === 0 && days.length === 0) return <div className="card muted">Für diesen Zeitraum gibt es noch keine gespeicherte Prognose (Aufzeichnung seit 23.10.2026).</div>;
+  const v = forecastVerdict(rows);
+  const chart = days.map((d) => ({
+    label: shortDay(d.day),
+    real: d.real_noon_w == null ? null : d.real_noon_w / 1000,
+    fc: d.fc_noon_w == null ? null : d.fc_noon_w / 1000,
+    prev: d.fc_prev_noon_w == null ? null : d.fc_prev_noon_w / 1000,
+  }));
+  return (
+    <div className="stack">
+      {period === 'day' && <div className="muted small">Zeitraum: die letzten 14 Tage bis {fmtDate(date)}.</div>}
+      <section className="card">
+        <div className="chart-title">Urteil</div>
+        <div className="insights"><Insight tone={v.tone} title={v.title}>{v.text}</Insight></div>
+      </section>
+
+      <Section nr="1" title="Treffsicherheit" question="Wie weit liegt die PV-Prognose daneben – je nachdem, wie weit sie vorausschaut?">
+        {rows.length === 0 ? <div className="muted small">Noch keine Messwerte zu den vorhergesagten Zeitpunkten.</div> : (
+          <table className="ptable fc-table">
+            <thead><tr><th>Vorhersage</th><th className="hide-sm">Tage</th><th>Ø Prognose kW</th><th>Ø gemessen kW</th><th>Ø Abweichung</th><th>Tendenz</th></tr></thead>
+            <tbody>
+              {rows.map((a) => {
+                const b = a.real_avg_w ? Math.round((100 * a.bias_w) / a.real_avg_w) : 0;
+                return (
+                  <tr key={a.horizon_h}>
+                    <td>{HZ[a.horizon_h]}</td>
+                    <td className="hide-sm">{a.days}</td>
+                    <td>{k1(a.fc_avg_w)}</td>
+                    <td>{k1(a.real_avg_w)}</td>
+                    <td className={Number(a.mae_pct) > 50 ? 'warn-text' : ''}><span className="hide-sm">{kW(a.mae_w)} · </span>{a.mae_pct ?? '–'} %</td>
+                    <td title={Math.abs(b) < 10 ? 'Prognose im Mittel passend' : b > 0 ? 'Prognose im Mittel zu hoch' : 'Prognose im Mittel zu niedrig'}>{Math.abs(b) < 10 ? 'passt' : b > 0 ? `+${b} %` : `${b} %`}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+        <div className="muted small">Tendenz: + = Prognose im Mittel zu hoch, − = zu niedrig. Verglichen wird jede gespeicherte Prognose (alle 15 min) mit der gemessenen PV-Leistung zum vorhergesagten Zeitpunkt. Nachtstunden zählen nicht. Für die Entscheidungen am Morgen zählt vor allem „in 3 h“ und „in 6 h“.</div>
+      </Section>
+
+      <Section nr="2" title="Mittag: Prognose gegen Messung" question="Was war für 12 Uhr vorhergesagt – und was kam?">
+        <ResponsiveContainer width="100%" height={230}>
+          <ComposedChart data={chart} margin={{ top: 12, right: 8, bottom: 0, left: -6 }}>
+            <CartesianGrid stroke="var(--grid)" vertical={false} />
+            <XAxis dataKey="label" stroke="var(--muted)" fontSize={11} interval="preserveStartEnd" minTickGap={4} />
+            <YAxis stroke="var(--muted)" fontSize={12} unit=" kW" width={56} allowDecimals={false} />
+            <Tooltip formatter={(val) => `${Number(val).toLocaleString('de-DE', { maximumFractionDigits: 1 })} kW`} />
+            <Bar dataKey="real" name="gemessen 12 Uhr" fill={F.sun} maxBarSize={44} isAnimationActive={false} />
+            <Line dataKey="fc" name="Prognose am Morgen (6 Uhr)" stroke={F.bat} strokeWidth={2} dot={{ r: 3 }} connectNulls={false} isAnimationActive={false} />
+            <Line dataKey="prev" name="Prognose vom Vortag (12 Uhr)" stroke={F.car} strokeWidth={1.5} strokeDasharray="5 3" dot={{ r: 2 }} connectNulls={false} isAnimationActive={false} />
+          </ComposedChart>
+        </ResponsiveContainer>
+        <Legend2 items={[{ label: 'gemessen 12 Uhr', color: F.sun }, { label: 'Prognose am Morgen', color: F.bat }, { label: 'Prognose vom Vortag', color: F.car }]} />
+        <table className="ptable fc-table">
+          <thead><tr><th>Tag</th><th>Morgens kW</th><th>Vortag kW</th><th>gemessen kW</th><th className="hide-sm">PV Tag kWh</th><th>Heizung Netz kWh</th></tr></thead>
+          <tbody>
+            {days.map((d) => (
+              <tr key={String(d.day)}>
+                <td>{shortDay(d.day)}{d.source === 'nachgetragen' ? <span className="muted"> *</span> : ''}</td>
+                <td>{k1(d.fc_noon_w)}</td>
+                <td>{k1(d.fc_prev_noon_w)}</td>
+                <td>{k1(d.real_noon_w)}</td>
+                <td className="hide-sm">{num(d.pv_kwh, 1)}</td>
+                <td className={Number(d.heat_grid_kwh) >= 2 ? 'warn-text' : ''}>{num(d.heat_grid_kwh, 1)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div className="muted small">* nachgetragen aus den gespeicherten Prognosen (ohne Einstellungen des Tages). Ab Collector 0.6 hält das Tagesprotokoll jeden Morgen Prognose, Einstellungen und Heizplan fest – die Grundlage für die Mustererkennung (Stufe B).</div>
+      </Section>
+    </div>
+  );
+}
+
 export default function Analyse({ settings, rooms }) {
   const [period, setPeriod] = useState('day');
   const [view, setView] = useState('energy');
@@ -700,13 +808,14 @@ export default function Analyse({ settings, rooms }) {
         <div className="seg seg-4">
           {P.map(([k, l]) => <button key={k} className={period === k ? 'seg-btn active' : 'seg-btn'} onClick={() => setPeriod(k)}>{l}</button>)}
         </div>
-        <div className="seg seg-2">
-          <button className={view === 'energy' ? 'seg-btn active' : 'seg-btn'} onClick={() => setView('energy')}>Energie</button>
-          <button className={view === 'rooms' ? 'seg-btn active' : 'seg-btn'} onClick={() => setView('rooms')}>Räume</button>
+        <div className="seg seg-3">
+          {[['energy', 'Energie'], ['rooms', 'Räume'], ['forecast', 'Prognose']].map(([k, l]) => (
+            <button key={k} className={view === k ? 'seg-btn active' : 'seg-btn'} onClick={() => setView(k)}>{l}</button>
+          ))}
         </div>
       </div>
       <PeriodNav period={period} date={date} setDate={setDate} />
-      {period === 'day'
+      {view === 'forecast' ? <ForecastView period={period} date={date} /> : period === 'day'
         ? (view === 'energy' ? <DayView date={date} settings={settings} /> : <RoomsView date={date} settings={settings} rooms={active} />)
         : (view === 'energy' ? <PeriodView period={period} date={date} /> : <PeriodRoomsView period={period} date={date} rooms={active} />)}
     </div>

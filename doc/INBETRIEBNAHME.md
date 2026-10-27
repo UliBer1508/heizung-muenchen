@@ -187,3 +187,38 @@ Kontrolle in Supabase:
 select ts, outdoor_c, weather_code, sunshine_today_s, pv_1h, pv_24h, load_1h
 from muc_forecast order by ts desc limit 5;
 ```
+
+---
+
+## 9. Update: Heizplan je Raum (Collector 0.5.0)
+
+1. Supabase → SQL Editor → Inhalt von `supabase/migration-005-raumprofile.sql` → *Run*
+   (Ergebnis: Liste der Räume mit morgens / tags / abends / pv_prio).
+2. Mini-PC: `git pull` → `C:\nssm\nssm.exe restart HeizungMuenchen`.
+3. App → *Einstellungen → Heizplan*: je Raum Morgens / Tagsüber / Abends und PV-Priorität einstellen, speichern.
+
+---
+
+## 10. Update: Tagesprotokoll und Prognose-Treffsicherheit (Collector 0.6.0)
+
+Stufe A der vorausschauenden Steuerung – **ändert nichts an der Heizungssteuerung**.
+
+1. Supabase → SQL Editor → Inhalt von `supabase/migration-006-tagesprotokoll.sql` → *Run*.
+   Am Ende erscheint `nachgetragene_tage` = Anzahl der Tage, die aus den gespeicherten Prognosen
+   (seit 23.10.2026) nachgetragen wurden.
+2. Mini-PC:
+   ```powershell
+   cd C:\Users\ulibe\heizung-muenchen
+   git pull
+   C:\nssm\nssm.exe restart HeizungMuenchen
+   ```
+   Im Log erscheint „Collector 0.6.0 startet“ und kurz danach „Tagesprotokoll …: gespeichert“.
+   Startet der Collector erst nach dem Morgen (wie beim Update am Nachmittag), wird der Tag als *verspätet* markiert
+   und fließt nicht in die Mittagsauswertung ein – ab dem nächsten Morgen läuft es regulär um „Morgen ab“.
+3. App neu laden (**Strg + Umschalt + R**) → *Analyse → Prognose*.
+
+Kontrolle in Supabase:
+```sql
+select day, source, late, fc_ts, fc_pv_6h, fc_prev_noon_pv from muc_day_context order by day desc limit 7;
+select * from muc_forecast_accuracy(current_date - 14, current_date);
+```

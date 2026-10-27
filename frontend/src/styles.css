@@ -170,6 +170,7 @@ select, input[type='number'], input[type='time'], input[type='email'], input[typ
 /* ---------- Analyse ---------- */
 .analyse-bar { justify-content: space-between; }
 .seg-2 { display: inline-grid; grid-template-columns: 1fr 1fr; min-width: 180px; }
+.seg-3 { display: inline-grid; grid-template-columns: repeat(3, 1fr); min-width: 270px; }
 .seg-4 { display: inline-grid; grid-template-columns: repeat(4, 1fr); min-width: 300px; }
 .datenav { display: flex; align-items: center; gap: 6px; }
 .datenav .btn { padding: 6px 12px; }
@@ -192,8 +193,9 @@ select, input[type='number'], input[type='time'], input[type='email'], input[typ
 .explain-card ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
 @media (max-width: 640px) {
   .analyse-bar { flex-direction: column; align-items: stretch; gap: 8px; }
-  .seg-2, .seg-4 { display: grid; width: 100%; min-width: 0; }
+  .seg-2, .seg-3, .seg-4 { display: grid; width: 100%; min-width: 0; }
   .seg-2 { grid-template-columns: 1fr 1fr; }
+  .seg-3 { grid-template-columns: repeat(3, 1fr); }
   .seg-4 { grid-template-columns: repeat(4, 1fr); }
   .datenav { justify-content: space-between; }
   .datenav-label { flex: 1; text-align: center; }
@@ -280,6 +282,8 @@ select, input[type='number'], input[type='time'], input[type='email'], input[typ
   .toolbar select { width: 100%; }
   .seg { display: grid; grid-template-columns: repeat(4, 1fr); }
   .seg-btn { padding: 8px 4px; font-size: 13px; }
+  .seg.seg-2 { grid-template-columns: 1fr 1fr; }
+  .seg.seg-3 { grid-template-columns: repeat(3, 1fr); }
   .chart { padding: 10px 6px; }
   .chart-title { padding: 0 8px; font-size: 14px; }
 
@@ -313,3 +317,12 @@ select, input[type='number'], input[type='time'], input[type='email'], input[typ
 .plan-table td.c, .plan-table th:not(:first-child) { text-align: center; }
 .plan-table input[type=checkbox] { width: 18px; height: 18px; }
 .plan-table select { font: inherit; padding: 2px 4px; }
+
+/* Analyse → Prognose */
+.fc-table td { white-space: nowrap; }
+.fc-table th { vertical-align: bottom; }
+@media (max-width: 640px) {
+  .hide-sm { display: none; }
+  .fc-table { font-size: 13px; }
+  .fc-table th { font-size: 11px; white-space: normal; }
+}

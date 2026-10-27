@@ -218,6 +218,15 @@ export function roomTarget({ room, phase, level = 0, soc = null, now, settings }
   return { mode, target: clamp(target, lo, hi), reason };
 }
 
+/**
+ * Tagesprotokoll (ab 0.6): einmal am Tag beim ersten Lauf außerhalb der Nacht erfassen –
+ * normalerweise direkt bei „Morgen ab“. Dann hält das Protokoll fest, was das FEMS für den
+ * Tag vorhergesagt hat, bevor die Heizung darauf reagieren konnte.
+ */
+export function shouldCaptureDayContext({ phase, today, lastCapturedDay }) {
+  return phase !== PHASES.NACHT && lastCapturedDay !== today;
+}
+
 /** Muss der Sollwert in Loxone geschrieben werden? */
 export function needsWrite({ target, loxoneSetpoint, lastWrittenAt, now, resendMinutes = 120 }) {
   if (loxoneSetpoint == null || Number.isNaN(loxoneSetpoint)) return true;
