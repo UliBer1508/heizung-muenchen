@@ -169,6 +169,30 @@ function PctChart({ data, height = 190 }) {
   );
 }
 
+// Kumulierter Verlauf über den Tag: Quote „bis zu dieser Uhrzeit“
+function cumulativePct(rows) {
+  let pv = 0, go = 0, c = 0, gi = 0;
+  return rows.map((r) => {
+    pv += r.pv; go += r.go; c += r.c; gi += r.gi;
+    return {
+      h: r.h,
+      self_use: pv >= 0.2 ? Math.max(0, Math.min(100, Math.round(100 * (1 - go / pv)))) : null,
+      autarky: c >= 0.2 ? Math.max(0, Math.min(100, Math.round(100 * (1 - gi / c)))) : null,
+    };
+  });
+}
+
+function SelfUseFacts({ pv, feed, use, gridIn }) {
+  const q = selfUsePct(pv, feed);
+  const aut = use > 0.1 ? Math.max(0, Math.round(100 * (1 - gridIn / use))) : null;
+  return (
+    <div className="facts">
+      <span>Eigenverbrauch <strong>{pctText(q)}</strong> · {kwh(Math.max(0, pv - feed))} von {kwh(pv)} selbst genutzt</span>
+      <span>Autarkie <strong>{pctText(aut)}</strong> · {kwh(gridIn)} aus dem Netz</span>
+    </div>
+  );
+}
+
 function Section({ nr, title, question, children }) {
   return (
     <section className="card qsec">
@@ -200,6 +224,8 @@ function DayView({ date, settings }) {
   if (k.error || e.error) return <div className="alert">{k.error || e.error}</div>;
   if (k.loading || e.loading) return <div className="muted">Lade Auswertung …</div>;
   if (!kp || kp.data_hours == null || rows.length === 0) return <div className="card muted">Für diesen Tag gibt es keine Messwerte.</div>;
+
+  const cumPct = cumulativePct(rows);
 
   // ---- Summen
   const T = {
@@ -254,6 +280,7 @@ function DayView({ date, settings }) {
       </section>
 
       <Section nr="1" title="PV-Anlage" question="Wohin ging der Sonnenstrom?">
+        <SelfUseFacts pv={T.pv} feed={T.feed} use={T.use} gridIn={T.gridIn} />
         <SourceBar parts={[
           { k: 'h', label: 'Haus', color: F.house, v: T.pvHouse }, { k: 'w', label: 'Heizung', color: F.heat, v: T.pvHeat },
           { k: 'c', label: 'Auto', color: F.car, v: T.pvCar }, { k: 'b', label: 'Batterie geladen', color: F.batIn, v: T.pvBat },
@@ -272,6 +299,18 @@ function DayView({ date, settings }) {
             <Area yAxisId="a" stackId="pv" dataKey="pvFeed" name="Eingespeist" stroke="none" fill={F.feed} fillOpacity={0.9} isAnimationActive={false} />
           </ComposedChart>
         </ResponsiveContainer>
+        <div className="chart-title">Eigenverbrauch und Autarkie im Tagesverlauf (aufsummiert bis zur jeweiligen Uhrzeit)</div>
+        <ResponsiveContainer width="100%" height={180}>
+          <ComposedChart data={cumPct} margin={{ top: 12, right: 6, bottom: 0, left: -14 }}>
+            <CartesianGrid stroke="var(--grid)" vertical={false} />
+            {xAxis}
+            <YAxis stroke="var(--muted)" fontSize={12} unit=" %" width={56} domain={[0, 100]} />
+            <Tooltip formatter={(v, name) => [`${v} %`, name]} labelFormatter={(h) => `bis ${hm(h)} Uhr`} />
+            <Line dataKey="self_use" name="Eigenverbrauch" stroke={F.feed} strokeWidth={2} dot={false} connectNulls isAnimationActive={false} />
+            <Line dataKey="autarky" name="Autarkie" stroke={C.bat} strokeWidth={2} dot={false} connectNulls isAnimationActive={false} />
+          </ComposedChart>
+        </ResponsiveContainer>
+        <Legend2 items={[{ label: 'Eigenverbrauch (PV selbst genutzt)', color: F.feed }, { label: 'Autarkie (Verbrauch ohne Netz)', color: C.bat }]} />
       </Section>
 
       <Section nr="2" title="Batterie" question="Wann wurde sie geladen – und wer hat sie geleert?">
@@ -610,6 +649,7 @@ function PeriodView({ period, date }) {
       </section>
 
       <Section nr="1" title="PV-Anlage" question={`Wohin ging der Sonnenstrom? (kWh je ${unit})`}>
+        <SelfUseFacts pv={T.pv_kwh} feed={T.feed_kwh} use={T.use_kwh} gridIn={T.grid_in_kwh} />
         <SourceBar parts={[
           { k: 'h', label: 'Haus', color: F.house, v: T.pv_house_kwh }, { k: 'w', label: 'Heizung', color: F.heat, v: T.pv_heat_kwh },
           { k: 'c', label: 'Auto', color: F.car, v: T.pv_car_kwh }, { k: 'b', label: 'Batterie geladen', color: F.batIn, v: T.pv_bat_kwh },
