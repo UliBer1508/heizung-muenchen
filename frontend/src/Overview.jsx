@@ -36,15 +36,41 @@ function ModeHero({ status }) {
   );
 }
 
+// Eigenverbrauchsquote und Autarkie aus den aktuellen Leistungswerten.
+// Eigenverbrauch = PV, die nicht ins Netz geht (Haus, Wärmepumpe, Auto, Batterie laden).
+// Autarkie      = Anteil des Hausverbrauchs, der nicht aus dem Netz kommt.
+function selfUse(e) {
+  if (e?.pv_w == null || e?.grid_w == null) return { quote: null, self: null, autarky: null, gridIn: null };
+  const pv = Math.max(0, e.pv_w);
+  const feed = Math.max(0, -e.grid_w);
+  const gridIn = Math.max(0, e.grid_w);
+  const use = e.consumption_w ?? Math.max(0, pv + e.grid_w + (e.battery_w ?? 0));
+  const self = Math.max(0, pv - feed);
+  const quote = pv >= 50 ? Math.min(100, Math.round((100 * self) / pv)) : null;
+  const autarky = use >= 50 ? Math.max(0, Math.min(100, Math.round(100 * (1 - gridIn / use)))) : null;
+  return { quote, self, autarky, gridIn };
+}
+
 function Energy({ e }) {
   const grid = e?.grid_w;
   const bat = e?.battery_w;
+  const su = selfUse(e);
   const tiles = [
     { k: 'PV', v: fmtW(e?.pv_w), s: 'Erzeugung' },
     { k: 'Netz', v: fmtW(grid == null ? null : Math.abs(grid)), s: grid == null ? '' : grid > 50 ? 'Bezug' : grid < -50 ? 'Einspeisung' : 'ausgeglichen', warn: grid > 50 },
     { k: 'Batterie', v: e?.soc != null ? `${e.soc} %` : '–', s: bat == null ? '' : bat < -50 ? `lädt ${fmtW(-bat)}` : bat > 50 ? `entlädt ${fmtW(bat)}` : 'ruht' },
     { k: 'Haus', v: fmtW(e?.consumption_w), s: 'Verbrauch' },
     { k: 'Überschuss', v: fmtW(e?.surplus_w), s: 'nutzbar für Heizung', accent: true },
+    {
+      k: 'Eigenverbrauch',
+      v: su.quote != null ? `${su.quote} %` : '–',
+      s: su.quote != null ? `${fmtW(su.self)} der PV selbst genutzt` : 'keine PV-Erzeugung',
+    },
+    {
+      k: 'Autarkie',
+      v: su.autarky != null ? `${su.autarky} %` : '–',
+      s: su.autarky == null ? '' : su.gridIn > 50 ? `${fmtW(su.gridIn)} aus dem Netz` : 'ohne Netzbezug',
+    },
   ];
   return (
     <section className="energy">
