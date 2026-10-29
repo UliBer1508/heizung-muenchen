@@ -119,6 +119,56 @@ function Insight({ tone, title, children }) {
   );
 }
 
+// Eigenverbrauchsquote: Anteil der PV, der nicht ins Netz ging (Haus, Heizung, Auto, Batterie laden)
+const selfUsePct = (pv, feed) => (pv > 0.1 ? Math.max(0, Math.min(100, Math.round(100 * (1 - feed / pv)))) : null);
+const pctText = (v) => (v == null ? '–' : `${v} %`);
+
+function selfUseInsight(quote, feed, heatGrid) {
+  if (quote == null || quote >= 70 || feed < 2) return null;
+  return {
+    tone: 'sun',
+    title: `Nur ${quote} % des Sonnenstroms selbst genutzt`,
+    text: `${kwh(feed)} gingen ins Netz${heatGrid >= 1 ? `, während die Wärmepumpe ${kwh(heatGrid)} aus dem Netz zog` : ''}. Mittags gezielt vorheizen (Estrich als Speicher) hebt die Quote.`,
+  };
+}
+
+function SelfUseTiles({ pv, feed, use, gridIn, pvHouse, pvHeat, pvCar, pvBat }) {
+  const q = selfUsePct(pv, feed);
+  const aut = use > 0.1 ? Math.max(0, Math.round(100 * (1 - gridIn / use))) : null;
+  const parts = [['Haus', pvHouse], ['Heizung', pvHeat], ['Auto', pvCar], ['Akku', pvBat]]
+    .filter(([, v]) => v >= 0.05).map(([l, v]) => `${l} ${kwh(v)}`).join(' · ');
+  return (
+    <>
+      <div className="card tile accent">
+        <div className="eyebrow">Eigenverbrauch</div>
+        <div className="tile-value">{pctText(q)}</div>
+        <div className="muted small">{q == null ? 'keine PV-Erzeugung' : `${kwh(Math.max(0, pv - feed))} selbst genutzt${parts ? ` – ${parts}` : ''}`}</div>
+      </div>
+      <div className="card tile">
+        <div className="eyebrow">Autarkie</div>
+        <div className="tile-value">{pctText(aut)}</div>
+        <div className="muted small">{aut == null ? '' : `${kwh(gridIn)} aus dem Netz`}</div>
+      </div>
+    </>
+  );
+}
+
+// Eigenverbrauch und Autarkie je Tag/Monat als Linien (0–100 %)
+function PctChart({ data, height = 190 }) {
+  return (
+    <ResponsiveContainer width="100%" height={height}>
+      <ComposedChart data={data} margin={{ top: 12, right: 8, bottom: 0, left: -6 }}>
+        <CartesianGrid stroke="var(--grid)" vertical={false} />
+        <XAxis dataKey="label" stroke="var(--muted)" fontSize={11} interval="preserveStartEnd" minTickGap={4} />
+        <YAxis stroke="var(--muted)" fontSize={12} width={44} domain={[0, 100]} unit=" %" />
+        <Tooltip formatter={(v, name) => [`${v} %`, name]} />
+        <Line dataKey="self_use" name="Eigenverbrauch" stroke={F.feed} strokeWidth={2} dot={{ r: 2 }} connectNulls isAnimationActive={false} />
+        <Line dataKey="autarky" name="Autarkie" stroke={C.bat} strokeWidth={2} dot={{ r: 2 }} connectNulls isAnimationActive={false} />
+      </ComposedChart>
+    </ResponsiveContainer>
+  );
+}
+
 function Section({ nr, title, question, children }) {
   return (
     <section className="card qsec">
@@ -181,16 +231,19 @@ function DayView({ date, settings }) {
   if (T.batCar >= 0.3) ins.push({ tone: 'rose', title: `Auto hat ${kwh(T.batCar)} aus der Hausbatterie geladen`, text: 'Diese Energie fehlt abends. Empfehlung: in evcc die Entladung der Hausbatterie für das Fahrzeug sperren – Auto nur mit Überschuss.' });
   if (T.carGrid >= 0.3) ins.push({ tone: 'sun', title: `Auto hat ${kwh(T.carGrid)} aus dem Netz geladen`, text: 'Im PV-Modus sollte das nicht vorkommen – Mindestladestrom (6 A ≈ 4,1 kW) prüfen.' });
   if (emptyAt != null) ins.push({ tone: 'cool', title: `Batterie leer ab ${hm(emptyAt)} Uhr`, text: `Davon gingen ${kwh(T.batHeat)} an die Heizung, ${kwh(T.batHouse)} an das Haus${T.batCar > 0.05 ? `, ${kwh(T.batCar)} an das Auto` : ''}.` });
-  if (T.feed >= 1 && T.heatGrid >= 1) ins.push({ tone: 'green', title: `${kwh(T.feed)} eingespeist`, text: 'Gleichzeitig wurde aus dem Netz geheizt – diese Energie hätte mittags als Wärme gespeichert werden können.' });
+  const suDay = selfUseInsight(selfUsePct(T.pv, T.feed), T.feed, T.heatGrid);
+  if (suDay) ins.push(suDay);
+  else if (T.feed >= 1 && T.heatGrid >= 1) ins.push({ tone: 'green', title: `${kwh(T.feed)} eingespeist`, text: 'Gleichzeitig wurde aus dem Netz geheizt – diese Energie hätte mittags als Wärme gespeichert werden können.' });
   if (ins.length === 0) ins.push({ tone: 'green', title: 'Keine Auffälligkeiten', text: 'An diesem Tag lief alles weitgehend mit eigenem Strom.' });
 
   return (
     <div className="stack">
       {kp.data_hours < 20 && <div className="notice-warn">Unvollständiger Tag: nur {num(kp.data_hours, 1)} Stunden Messwerte – Summen gelten bis jetzt.</div>}
 
-      <section className="kpis kpis-4">
+      <section className="kpis">
         <div className="card tile"><div className="eyebrow">PV</div><div className="tile-value">{kwh(T.pv)}</div><div className="muted small">eingespeist {kwh(T.feed)}</div></div>
-        <div className="card tile"><div className="eyebrow">Verbrauch</div><div className="tile-value">{kwh(T.use)}</div><div className="muted small">Autarkie {num(kp.autarky_pct, 0, ' %')}</div></div>
+        <SelfUseTiles pv={T.pv} feed={T.feed} use={T.use} gridIn={T.gridIn} pvHouse={T.pvHouse} pvHeat={T.pvHeat} pvCar={T.pvCar} pvBat={T.pvBat} />
+        <div className="card tile"><div className="eyebrow">Verbrauch</div><div className="tile-value">{kwh(T.use)}</div><div className="muted small">davon Heizung {kwh(T.heat)}</div></div>
         <div className="card tile"><div className="eyebrow">Netzbezug</div><div className={`tile-value ${T.gridIn > 3 ? 'warn-text' : ''}`}>{kwh(T.gridIn)}</div><div className="muted small">davon Heizung {kwh(T.heatGrid)}</div></div>
         <div className="card tile"><div className="eyebrow">Außen</div><div className="tile-value">{kp.outdoor_avg != null ? `Ø ${num(kp.outdoor_avg, 1, ' °C')}` : '–'}</div><div className="muted small">{kp.outdoor_min != null ? `${num(kp.outdoor_min, 1)} … ${num(kp.outdoor_max, 1)} °C` : 'noch nicht erfasst'}</div></div>
       </section>
@@ -463,6 +516,7 @@ function aggregate(days) {
   t.empty_days = days.filter((d) => Number(d.bat_empty_h) >= 1).length;
   t.car_measured = days.some((d) => d.car_measured);
   t.autarky = t.use_kwh > 0 ? Math.round(100 * (1 - t.grid_in_kwh / t.use_kwh)) : null;
+  t.self_use = selfUsePct(t.pv_kwh, t.feed_kwh);
   return t;
 }
 
@@ -532,7 +586,9 @@ function PeriodView({ period, date }) {
   if (T.car_bat_kwh >= 0.5) ins.push({ tone: 'rose', title: `Auto hat ${kwh(T.car_bat_kwh)} aus der Hausbatterie geladen`, text: 'In evcc die Entladung der Hausbatterie für das Fahrzeug sperren.' });
   if (T.car_grid_kwh >= 0.5) ins.push({ tone: 'sun', title: `Auto hat ${kwh(T.car_grid_kwh)} aus dem Netz geladen`, text: 'Mindestladestrom bzw. Lademodus in evcc prüfen.' });
   if (T.empty_days > 0) ins.push({ tone: 'cool', title: `Batterie an ${T.empty_days} von ${T.days} Tagen leer`, text: `Zusammen ${num(T.bat_empty_h, 1, ' h')} ohne Speicher. Entladen an Heizung ${kwh(T.bat_heat_kwh)}, Haus ${kwh(T.bat_house_kwh)}, Auto ${kwh(T.bat_car_kwh)}.` });
-  if (T.feed_kwh >= 2 && T.heat_grid_kwh >= 2) ins.push({ tone: 'green', title: `${kwh(T.feed_kwh)} eingespeist`, text: 'Im selben Zeitraum wurde aus dem Netz geheizt – Potenzial für mittägliches Vorheizen.' });
+  const suPer = selfUseInsight(T.self_use, T.feed_kwh, T.heat_grid_kwh);
+  if (suPer) ins.push(suPer);
+  else if (T.feed_kwh >= 2 && T.heat_grid_kwh >= 2) ins.push({ tone: 'green', title: `${kwh(T.feed_kwh)} eingespeist`, text: 'Im selben Zeitraum wurde aus dem Netz geheizt – Potenzial für mittägliches Vorheizen.' });
   if (ins.length === 0) ins.push({ tone: 'green', title: 'Keine Auffälligkeiten', text: 'Der Zeitraum lief weitgehend mit eigenem Strom.' });
 
   const unit = period === 'year' ? 'Monat' : 'Tag';
@@ -540,9 +596,10 @@ function PeriodView({ period, date }) {
     <div className="stack">
       {T.days < totalDays && <div className="notice-warn">Daten für {T.days} von {totalDays} Tagen{period !== 'year' ? '' : ''} – Summen gelten für die erfassten Tage.</div>}
 
-      <section className="kpis kpis-4">
+      <section className="kpis">
         <div className="card tile"><div className="eyebrow">PV</div><div className="tile-value">{kwh(T.pv_kwh)}</div><div className="muted small">Ø {perDay(T.pv_kwh)}/Tag · eingespeist {kwh(T.feed_kwh)}</div></div>
-        <div className="card tile"><div className="eyebrow">Verbrauch</div><div className="tile-value">{kwh(T.use_kwh)}</div><div className="muted small">Autarkie {T.autarky ?? '–'} %</div></div>
+        <SelfUseTiles pv={T.pv_kwh} feed={T.feed_kwh} use={T.use_kwh} gridIn={T.grid_in_kwh} pvHouse={T.pv_house_kwh} pvHeat={T.pv_heat_kwh} pvCar={T.pv_car_kwh} pvBat={T.pv_bat_kwh} />
+        <div className="card tile"><div className="eyebrow">Verbrauch</div><div className="tile-value">{kwh(T.use_kwh)}</div><div className="muted small">Ø {perDay(T.use_kwh)}/Tag · Heizung {kwh(T.heat_kwh)}</div></div>
         <div className="card tile"><div className="eyebrow">Netzbezug</div><div className={`tile-value ${T.grid_in_kwh / Math.max(1, T.days) > 3 ? 'warn-text' : ''}`}>{kwh(T.grid_in_kwh)}</div><div className="muted small">davon Heizung {kwh(T.heat_grid_kwh)}</div></div>
         <div className="card tile"><div className="eyebrow">Außen</div><div className="tile-value">{T.outdoor_avg != null ? `Ø ${num(T.outdoor_avg, 1, ' °C')}` : '–'}</div><div className="muted small">{T.outdoor_min != null ? `${num(T.outdoor_min, 1)} … ${num(T.outdoor_max, 1)} °C` : 'noch nicht erfasst'}</div></div>
       </section>
@@ -563,6 +620,9 @@ function PeriodView({ period, date }) {
           { k: 'pv_car_kwh', label: 'Auto', color: F.car }, { k: 'pv_bat_kwh', label: 'Batterie geladen', color: F.batIn },
           { k: 'feed_kwh', label: 'Eingespeist', color: F.feed },
         ]} />
+        <div className="chart-title">Eigenverbrauch und Autarkie je {unit}</div>
+        <PctChart data={bars} />
+        <Legend2 items={[{ label: 'Eigenverbrauch (PV selbst genutzt)', color: F.feed }, { label: 'Autarkie (Verbrauch ohne Netz)', color: C.bat }]} />
       </Section>
 
       <Section nr="2" title="Batterie" question={`Wer hat sie geleert – und wie oft war sie leer? (kWh je ${unit})`}>
