@@ -10,7 +10,8 @@ Seit 0.6 entsteht ein Tagesprotokoll (Prognose am Morgen + Einstellungen + Ergeb
 | Collector | `collector/` – Node.js ≥ 20.6, ohne Zusatzpakete, läuft als NSSM-Dienst auf dem Mini-PC |
 | Web-App | `frontend/` – React + Vite, Hosting Vercel (Root Directory `frontend`) |
 | Datenbank | `supabase/schema.sql` + `migration-002` … `-006` (der Reihe nach) – Tabellen `muc_*` im Venediger-Supabase-Projekt |
-| Doku | `doc/STAND-UND-ROADMAP.md` (Stand, offene Phasen, Empfehlungen), `doc/KONZEPT.md` (Wie & Warum), `doc/INBETRIEBNAHME.md` (Schritt für Schritt) |
+| Alexa | `supabase/functions/alexa-heizung/` + `alexa/` – Skill „Meine Heizung“ für München **und** Venediger, Anleitung `doc/ALEXA.md` |
+| Doku | `doc/STAND-UND-ROADMAP.md` (Stand, offene Phasen, Empfehlungen), `doc/KONZEPT.md` (Wie & Warum), `doc/INBETRIEBNAHME.md` (Schritt für Schritt), `doc/ALEXA.md` (Sprachsteuerung) |
 
 ## Kurz
 
