@@ -5,6 +5,7 @@ const KINDS = {
   mode: 'Moduswechsel',
   write: 'Sollwert',
   error: 'Fehler',
+  alexa: 'Alexa',
 };
 
 export default function Log({ data }) {
@@ -14,7 +15,7 @@ export default function Log({ data }) {
   return (
     <div className="stack">
       <div className="seg">
-        {[['all', 'Alle'], ['mode', 'Modus'], ['write', 'Sollwerte'], ['error', 'Fehler']].map(([k, l]) => (
+        {[['all', 'Alle'], ['mode', 'Modus'], ['write', 'Sollwerte'], ['alexa', 'Alexa'], ['error', 'Fehler']].map(([k, l]) => (
           <button key={k} className={filter === k ? 'seg-btn active' : 'seg-btn'} onClick={() => setFilter(k)}>{l}</button>
         ))}
       </div>
