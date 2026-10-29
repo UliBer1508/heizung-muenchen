@@ -1,6 +1,6 @@
 # Heizung München – Projektstand und Roadmap
 
-Stand: 27.10.2026 · Collector-Version 0.6.0
+Stand: 29.10.2026 · Collector-Version 0.6.0 · Alexa-Skill „Meine Heizung“
 
 Dieses Dokument fasst zusammen, was bisher umgesetzt wurde, welche Phasen noch offen sind
 und was darüber hinaus empfehlenswert ist. Technische Details stehen in
@@ -108,19 +108,35 @@ Namen ohne Umlaute verwenden (z. B. „Buero“), sonst drohen 404-Fehler beim W
 
 - Login über Supabase, installierbar auf dem Handy (Startbildschirm), mobile Ansicht mit Tab-Leiste unten.
 - **Übersicht:** Betriebsmodus mit Begründung, Energiewerte, **Wetter & PV-Prognose (FENECON)**,
+  seit 29.10.2026 zusätzlich die Kacheln **Eigenverbrauch** (Anteil der PV, der nicht ins Netz geht,
+  live in % und kW) und **Autarkie** (Anteil des Verbrauchs ohne Netz) neben „Überschuss“,
   Raumkarten (Ist, Soll, Ventil), manuelles Übersteuern mit Ablaufzeit.
 - **Analyse – Tag:** Netzbezug (davon nachts), PV, Autarkie, Batterie leer, Außentemperatur,
   geschätzter Heizstrom und dessen Herkunft (Sonne/Batterie/Netz), Tageskurven.
+  Seit 29.10.2026: Kacheln **Eigenverbrauch** (mit Aufteilung Haus/Heizung/Auto/Akku) und **Autarkie**,
+  im Abschnitt PV-Anlage eine Zeile mit beiden Werten und die Kurve „Eigenverbrauch und Autarkie im
+  Tagesverlauf“ (aufsummiert bis zur jeweiligen Uhrzeit); Hinweis unter „Das Wichtigste“, wenn weniger als
+  70 % der PV selbst genutzt wurden und mehr als 2 kWh ins Netz gingen.
 - **Analyse – Räume:** Ø Ist/Soll, Abweichung, Stunden zu kalt, Aufheiz-/Abkühlrate,
   Ventil-offen-Stunden nach Stromherkunft, Raumkurve mit Außentemperatur.
 - **Analyse – Woche / Monat / Jahr:** dieselben vier Fragen (PV, Batterie, Wärmepumpe, Auto) als Balken je Tag bzw. Monat,
   Wärmepumpe mit Außentemperatur, Heizstrom nach Tageszeit, Räume mit Ventil-Stunden und Temperaturverlauf.
   Tageswerte werden nachts dauerhaft gespeichert (`muc_daily_stats`).
+  Seit 29.10.2026 auch hier Eigenverbrauch und Autarkie als Kacheln und als Linien je Tag bzw. Monat.
 - **Analyse – Prognose** (seit 0.6): Urteil, ob die FENECON-Prognose treffsicher genug für die Steuerung ist,
   Abweichung je Vorhersagezeitraum (1–24 h), Mittagsprognose (morgens und vom Vortag) gegen gemessene PV je Tag.
-- **Protokoll:** jede Entscheidung mit Begründung.
+- **Protokoll:** jede Entscheidung mit Begründung; seit 29.10.2026 Filter **Alexa** für Sprachbefehle.
 - **Einstellungen:** Testmodus, Automatik, **Heizplan je Raum** (seit 0.5; seit 0.6.2 einklappbar, mit den resultierenden Sollwerten je Tageszeit und mit Sonne sowie dem Hinweis, dass die Wärmepumpe nach eigenem Zeitprogramm heizt), Tagesablauf, PV-Stufen, Schwellwerte, Grundlast,
   Temperaturen je Raum.
+
+### 2.4a Alexa-Skill „Meine Heizung“ (29.10.2026)
+
+Sprachsteuerung für **München und Venediger** über die Supabase Edge Function `alexa-heizung`
+(Code `supabase/functions/alexa-heizung/index.ts`, Sprachmodell `alexa/interaction-model-de-DE.json`).
+Alexa schreibt auf denselben Wegen wie die Apps (München: Übersteuerung in `muc_rooms`), es gelten Testmodus,
+Automatik und Raumgrenzen. Abfragen: Eigenverbrauch/Autarkie, Raumtemperatur, Status. Befehle: Raum stellen,
+wieder automatisch, Automatik an/aus; Venediger zusätzlich Anwesenheit („Ich bin da bis Sonntag“).
+Einrichtung, Befehle und Fehlersuche: [`ALEXA.md`](ALEXA.md).
 
 ### 2.5 Raumtemperaturen (°C) – Startwerte vom 23.10.2026
 
@@ -230,6 +246,8 @@ Die Punkte 1 und 2 kann der Heizungsbauer beim Termin für das LAN-Kabel mit erl
 | Alle FEMS-Kanäle ansehen | `curl.exe -s -u x:user "http://192.168.188.59/rest/channel/.*/.*" -o fems-kanaele.json` |
 | Sofort nichts mehr schalten | App → Einstellungen → Automatik **Aus** (oder `FORCE_DRY_RUN=1` in `.env` + Neustart) |
 | Datenbank-Änderungen | Supabase → SQL Editor → Datei aus `supabase/` ausführen |
+| Alexa-Function ändern | Supabase → Edge Functions → `alexa-heizung` → Code → einfügen → **Deploy** (Details `ALEXA.md`) |
+| Alexa-Sprachmodell ändern | Alexa Developer Console → Meine Heizung → JSON Editor → Save → **Build skill** |
 | Web-App | Vercel baut nach jedem Commit automatisch neu. Zeigt der Browser danach noch die alte Version: **Strg + Umschalt + R** (PWA-Zwischenspeicher) |
 
 **Notfall:** Collector stoppen (`nssm stop HeizungMuenchen`) – Loxone behält den letzten Wert,

@@ -1,96 +1,137 @@
-# Alexa-Skill „Heizung München“
+# Alexa-Skill „Meine Heizung“ – München und Venediger
 
-Alexa spricht **nicht direkt mit Loxone**, sondern mit der Supabase Edge Function `alexa-heizung`.
-Die Function schreibt in dieselben Felder wie die App (`override_temp` / `override_until` in `muc_rooms`,
-`automation_enabled` in `muc_settings`). Der Collector setzt das beim nächsten Durchlauf in Loxone um.
-Damit kann die Automatik einen Sprachbefehl nicht überschreiben, und jeder Befehl steht im Protokoll
-(Filter **Alexa**).
+**Stand:** 29.10.2026 · **Status:** eingerichtet und getestet (Alexa-Simulator), Skill im Entwicklungsmodus
 
-Es gelten dieselben Regeln wie in der App:
-- Grenzen je Raum (`min_temp` / `max_temp`, höchstens 5–26 °C)
-- **Testmodus an** → es wird nichts geschaltet (Alexa sagt das dazu)
-- **Automatik aus** → der Collector schreibt nichts nach Loxone (Alexa sagt das dazu)
+Ein Alexa-Skill für **beide Häuser**. Beide liegen im selben Supabase-Projekt `pflnniklvqbwjwrjswaz`
+(„KI-Heizungssteuerung“): München in den `muc_`-Tabellen, Venediger in `rooms`, `energy_readings`,
+`presence_periods` usw. Eine einzige Edge Function bedient beide.
 
-## Was der Skill kann
+| | |
+|---|---|
+| Skill | „Meine Heizung“, Custom, German (DE), Aufrufname **„meine heizung“**, Status *In Dev* |
+| Amazon-Konto | Alexa Developer Console mit `uli.berresheim@hotmail.de` (dasselbe Konto wie die Echos) |
+| Endpunkt | `https://pflnniklvqbwjwrjswaz.supabase.co/functions/v1/alexa-heizung` (HTTPS, Wildcard-Zertifikat) |
+| Edge Function | `alexa-heizung`, Code: `supabase/functions/alexa-heizung/index.ts`, **JWT-Prüfung aus** |
+| Sprachmodell | `alexa/interaction-model-de-DE.json` (16 Intents, Slot-Typen `RAUM`, `HAUS`, `SCHALTER`) |
+| Secrets | `ALEXA_SKILL_ID` (Pflicht), `ALEXA_USER_IDS` und `ALEXA_VEN_DEVICES` (optional) |
+
+Kontrolle im Browser: Die Endpunkt-URL zeigt „Meine Heizung – Alexa-Endpunkt (München und Venediger)“.
+
+---
+
+## 1. Grundsatz: Alexa schaltet nie direkt
+
+Alexa schreibt auf **denselben Wegen wie die jeweilige App**. So kann die Automatik einen Sprachbefehl
+nicht überschreiben, und es gelten dieselben Grenzen.
+
+| | München | Venediger |
+|---|---|---|
+| Raum stellen | `muc_rooms.override_temp` + `override_until` → Collector setzt es in Loxone um | wie `useTuyaControl.setTemperature`: Befehl in `thermostat_commands` (lokaler Modus) bzw. Edge Function `tuya-control/set-temp` (Cloud-Modus, je nach `system_settings.tuya_control_mode`), dazu `rooms.manual_override_until` + `target_temp` |
+| Raum wieder automatisch | `override_temp` / `override_until` = leer | `rooms.manual_override_until` = leer |
+| Automatik an/aus | `muc_settings.automation_enabled` | – (nur je Raum in der App) |
+| Anwesenheit | – | `presence_periods` wie der Schnellschalter der App (Quelle `quick`, Notiz „Alexa“) |
+| Protokoll | `muc_decisions`, Art `alexa` (App → Protokoll → Filter **Alexa**) | Befehle in `thermostat_commands` |
+| Grenzen | `min_temp` / `max_temp` je Raum, höchstens 5–26 °C | 5–26 °C |
+| Testmodus | Ist der Testmodus an oder die Automatik aus, sagt Alexa das dazu | – |
+
+## 2. Welches Haus?
+
+1. Ausdrücklich genannt: „… **in Venediger**“, „… **in München**“, „… **in beiden Häusern**“
+   (Synonyme: Venedigersiedlung, Neukirchen, Österreich · Weidmannstraße, Stadt · überall).
+2. Sonst das Haus, in dem das Echo steht: Geräte-IDs im Secret `ALEXA_VEN_DEVICES` → Venediger.
+3. Sonst **München**.
+
+**Räume** werden aus der Datenbank erkannt (`muc_rooms` bzw. `rooms`), neue oder umbenannte Räume
+funktionieren also ohne Änderung am Skill. Das Haus des Echos hat Vorrang. Das andere Haus gewinnt nur
+mit klar besserem Treffer, z. B. gibt es „Bad Uli“, „Zimmer Luca“ oder „Kinderbad“ nur in Venediger. Alexa
+sagt dann „In Venediger: …“ dazu. Bei „Wohnzimmer“ gilt das Haus des Echos.
+
+Geschoss als Wort oder Kürzel: Keller/KG, Erdgeschoss/EG, Obergeschoss/OG, Dachgeschoss/DG. Bei
+Mehrdeutigkeit fragt Alexa nach („Meinst du KG Bad oder DG Bad?“), und die kurze Antwort genügt („Keller“).
+
+## 3. Befehle
+
+Fragen beginnen mit „Alexa, **frag** meine Heizung, …“, Befehle mit „Alexa, **sag** meine Heizung, …“.
 
 | Du sagst … | Alexa macht |
 |---|---|
-| „Alexa, frag Heizung München, wie hoch ist der Eigenverbrauch?“ | PV jetzt, Akku, Netz; heute: PV-Summe, Eigenverbrauchsquote, Autarkie, Heizstrom aus dem Netz |
-| „Alexa, frag Heizung München, wie warm ist es im Bad im Keller?“ | Ist-Temperatur, Soll, Raummodus, Ventil |
-| „Alexa, frag Heizung München nach dem Status“ | Hausmodus, manuell gestellte Räume, Warnung bei Collector-Ausfall / Testmodus |
-| „Alexa, sag Heizung München, stelle das Wohnzimmer für drei Stunden auf 22 Grad“ | Übersteuerung mit Ablaufzeit |
-| „Alexa, sag Heizung München, mach das Bad im Dachgeschoss warm“ | Übersteuerung auf die PV-Temperatur des Raums, 2 Stunden |
-| „Alexa, sag Heizung München, Wohnzimmer wieder automatisch“ | Übersteuerung beenden |
-| „Alexa, sag Heizung München, alle Räume wieder automatisch“ | alle Übersteuerungen beenden |
-| „Alexa, sag Heizung München, Automatik aus“ / „… an“ | Automatik schalten |
+| „… wie hoch ist der Eigenverbrauch?“ (auch „… in Venediger“, „… in beiden Häusern“) | PV, Akku, Netz jetzt; heute: PV-Summe, Eigenverbrauchsquote, Autarkie; München zusätzlich Heizstrom aus dem Netz |
+| „… wie warm ist es im Bad im Keller?“ | Ist, Soll, Modus bzw. heizt/heizt nicht, Ventil (München), manuell bis |
+| „… nach dem Status“ | München: Hausmodus, manuelle Räume, Collector-/Testmodus-Warnung. Venediger: anwesend/leer, Tagesmodus, heizende Räume, manuelle Räume |
+| „… stelle das Wohnzimmer für drei Stunden auf 22 Grad“ | Übersteuerung mit Ablaufzeit (ohne Dauer 2 h, höchstens 12 h) |
+| „… mach das Bad im Dachgeschoss warm“ | Übersteuerung auf PV-Temperatur (München) bzw. Komfort (Venediger), 2 h |
+| „… Wohnzimmer wieder automatisch“ | Übersteuerung beenden |
+| „… alle Räume wieder automatisch“ (auch „… in Venediger“) | alle Übersteuerungen eines Hauses beenden |
+| „… Automatik aus“ / „… an“ | nur München |
+| „… ich bin da bis Sonntag“ | Venediger: anwesend ab jetzt bis zum Datum (Standard-Abreisezeit, sonst 11:00); ohne Datum bis kommenden Sonntag 18:00 |
+| „… ich bin weg“ | Venediger: laufende Anwesenheit endet jetzt, künftige Einträge bleiben |
+| „… bis wann sind wir eingetragen?“ | Venediger: anwesend bis / leer, nächste Ankunft |
 
-Ohne Dauer gelten **2 Stunden**, höchstens **12 Stunden**.
+## 4. Einrichtung (so wurde es am 29.10.2026 gemacht)
 
-**Räume** werden aus `muc_rooms` erkannt, neue Räume funktionieren also automatisch. Geschoss geht als
-Wort oder Kürzel: Keller/KG, Erdgeschoss/EG, Obergeschoss/OG, Dachgeschoss/DG. Bei Mehrdeutigkeit fragt Alexa
-nach („Meinst du KG Bad oder DG Bad?“), und es reicht die kurze Antwort („Keller“).
+### 4.1 Edge Function (Supabase-Dashboard)
+1. Edge Functions → **Deploy a new function → Via Editor**, Name `alexa-heizung`, Inhalt von
+   `supabase/functions/alexa-heizung/index.ts` → **Deploy**.
+2. Function → **Settings** → **„Verify JWT with legacy secret“ aus** → Save changes.
+   (Alexa schickt keinen Supabase-Token; geschützt wird über die Skill-ID.)
+3. CLI-Alternative: `supabase functions deploy alexa-heizung --no-verify-jwt`
 
-## Einrichtung
+`SUPABASE_URL` und `SUPABASE_SERVICE_ROLE_KEY` stellt Supabase automatisch bereit.
 
-### 1. Edge Function anlegen (Supabase-Dashboard, Venediger-Projekt)
+### 4.2 Skill (Alexa Developer Console)
+1. **Create Skill** → „Meine Heizung“, **German (DE)**, Other → **Custom** → **Provision your own** →
+   Start from Scratch.
+2. Build → Interaction Model → **JSON Editor**: Inhalt von `alexa/interaction-model-de-DE.json` → Save →
+   **Build skill**.
+3. Build → **Endpoint**: **HTTPS**, Default Region = Endpunkt-URL, Zertifikat *„My development endpoint is
+   a sub-domain of a domain that has a wildcard certificate from a certificate authority“* → Save.
+4. Skill-ID (Endpoint-Seite, „Copy to Clipboard“).
 
-1. **Edge Functions → Deploy a new function → Via Editor**
-2. Name: `alexa-heizung`
-3. Inhalt von `supabase/functions/alexa-heizung/index.ts` einfügen → **Deploy**
-4. In der Function unter **Details/Settings**: **„Enforce JWT verification“ ausschalten**
-   (Alexa schickt keinen Supabase-Token; geschützt wird über die Skill-ID).
-5. URL notieren: `https://<projekt-ref>.supabase.co/functions/v1/alexa-heizung`
+### 4.3 Secret
+Supabase → Edge Functions → **Secrets** → `ALEXA_SKILL_ID` = Skill-ID. Kontrolle: Die angezeigte
+SHA256-Prüfsumme muss zu `printf '%s' '<skill-id>' | sha256sum` passen (dann ohne Leerzeichen/Umbruch).
 
-Alternativ mit der CLI: `supabase functions deploy alexa-heizung --no-verify-jwt`
+### 4.4 Test
+Developer Console → **Test** → „Skill testing is enabled in“ **Development** → z. B.
+`frag meine heizung wie hoch ist der eigenverbrauch in beiden häusern`.
+Ab dann geht es auf allen Echos im Konto, ohne Veröffentlichung.
 
-`SUPABASE_URL` und `SUPABASE_SERVICE_ROLE_KEY` stellt Supabase der Function automatisch bereit.
+### 4.5 Optional
+- **Nur dein Konto zulassen:** „Alexa, öffne meine Heizung“ → in den Function-Logs steht
+  `Alexa-Benutzer: amzn1.ask.account.…` → als Secret `ALEXA_USER_IDS`.
+- **Echos in Venediger zuordnen:** am Echo dort „Alexa, öffne meine Heizung“ → in den Logs steht
+  `Alexa-Gerät: amzn1.ask.device.…` → als Secret `ALEXA_VEN_DEVICES` (mehrere durch Komma).
 
-### 2. Skill anlegen (Alexa Developer Console)
+## 5. Änderungen einspielen
 
-Mit **demselben Amazon-Konto**, an dem die Echo-Geräte hängen: <https://developer.amazon.com/alexa/console/ask>
+| Was geändert | Wo einspielen |
+|---|---|
+| `index.ts` | Supabase → Edge Functions → `alexa-heizung` → **Code** → Inhalt ersetzen → **Deploy** |
+| `interaction-model-de-DE.json` | Developer Console → JSON Editor → einfügen → Save → **Build skill** |
+| neue Räume | nichts – werden aus der Datenbank erkannt. Für bessere Spracherkennung optional den Namen im Slot-Typ `RAUM` ergänzen |
 
-1. **Create Skill** → Name „Heizung München“, Sprache **German (DE)**
-2. Typ **Other → Custom**, Hosting **Provision your own**, Vorlage **Start from Scratch**
-3. **Build → Interaction Model → JSON Editor**: Inhalt von `alexa/interaction-model-de-DE.json` einfügen
-   → **Save** → **Build skill** (dauert ca. 1 Minute)
-4. **Build → Endpoint**: **HTTPS**, Default Region = URL aus Schritt 1.5,
-   Zertifikat: *„My development endpoint is a sub-domain of a domain that has a wildcard certificate from a
-   certificate authority“* → **Save**
-5. Oben links die **Skill-ID** kopieren (`amzn1.ask.skill.…`)
-
-### 3. Skill-ID hinterlegen
-
-Supabase → **Edge Functions → Secrets** → `ALEXA_SKILL_ID` = Skill-ID aus 2.5.
-Ohne diesen Wert lehnt die Function **alle** Anfragen ab.
-
-### 4. Testen
-
-1. Developer Console → **Test** → „Skill testing is enabled in“ auf **Development** stellen
-2. Im Textfeld tippen: `frag heizung münchen wie hoch ist der eigenverbrauch`
-3. Danach geht es auf jedem Echo im Konto. Der Skill bleibt privat (Entwicklungsmodus), es ist
-   **keine Veröffentlichung** nötig.
-
-Erst mit **Testmodus an** ausprobieren: Die Befehle landen im Protokoll, geschaltet wird nichts.
-
-### 5. Optional: nur dein Alexa-Konto zulassen
-
-Nach dem ersten „Alexa, öffne Heizung München“ steht in den Function-Logs
-(Edge Functions → alexa-heizung → Logs) die Zeile `Alexa-Benutzer: amzn1.ask.account.…`.
-Diesen Wert als Secret `ALEXA_USER_IDS` hinterlegen (mehrere durch Komma).
-
-## Fehlersuche
+## 6. Fehlersuche
 
 | Symptom | Ursache |
 |---|---|
-| Alexa: „Beim Antworten des Skills ist ein Problem aufgetreten“ | Function-Logs ansehen. `abgelehnt: falsche Skill-ID` → Secret prüfen. 401 → JWT-Prüfung ist noch an. |
-| „Ich komme gerade nicht an die Heizungsdaten“ | Datenbankfehler, steht in den Function-Logs |
-| Raum wird nicht erkannt | Raumnamen in `muc_rooms` prüfen; Synonyme ergänzen im Slot-Typ `RAUM` des Interaction Models oder in `SYNONYMS` in der Function |
-| Befehl kommt an, aber Loxone ändert nichts | Testmodus oder Automatik aus (sagt Alexa dazu); Collector läuft? |
+| „Beim Antworten des Skills ist ein Problem aufgetreten“ | Function-Logs ansehen: `abgelehnt: falsche Skill-ID` → Secret prüfen; 401 → JWT-Prüfung noch an |
+| „Ich komme gerade nicht an die Heizungsdaten“ | Datenbankfehler, Details in den Function-Logs |
+| Raum wird nicht erkannt | Raumnamen in `muc_rooms` / `rooms` prüfen; Synonyme in `SYNONYMS` (Function) oder Slot-Typ `RAUM` |
+| München: Befehl kommt an, Loxone ändert nichts | Testmodus an oder Automatik aus (sagt Alexa dazu); Collector läuft? |
+| Venediger: Befehl kommt an, Thermostat ändert nichts | lokaler Modus: Tuya-Dienst auf dem Mini-PC läuft? `thermostat_commands` bleibt sonst `pending`. Cloud-Modus: Tuya-Kontingent |
+| Venediger antwortet „Messwerte … Minuten alt“ | Fronius-Collector auf dem Mini-PC prüfen |
+| Echo in Venediger meint München | `ALEXA_VEN_DEVICES` fehlt (4.5) – oder „… in Venediger“ sagen |
 
-## Sicherheit
+## 7. Sicherheit
 
-- Die Function prüft **Skill-ID** und **Zeitstempel** (max. 150 s alt), optional die **Benutzer-ID**.
-  Die volle Signaturprüfung von Amazon-Zertifikaten ist nur für veröffentlichte Skills Pflicht und hier nicht eingebaut.
-- Die Function nutzt den service_role-Key nur serverseitig; er verlässt Supabase nicht.
-- Alexa kann nur, was die Function anbietet: Übersteuerungen, Automatik, Abfragen. Kein Testmodus-Schalter,
-  keine Einstellungen, keine Raumprofile.
+- Die Function prüft **Skill-ID** und **Zeitstempel** (max. 150 s), optional die **Benutzer-ID**.
+  Die volle Signaturprüfung der Amazon-Zertifikate ist nur für veröffentlichte Skills Pflicht und nicht eingebaut.
+- Der service_role-Key bleibt in Supabase. Skill-ID und Secrets stehen nicht im Repo.
+- Alexa kann nur, was die Function anbietet: Abfragen, Übersteuerungen, Automatik (München), Anwesenheit
+  (Venediger). Kein Testmodus-Schalter, keine Einstellungen, keine Raumprofile.
+
+## 8. Ideen für später
+
+- Alexa meldet sich von selbst („Akku voll, ich heize den Estrich vor“) – braucht proaktive Benachrichtigungen.
+- Handy im WLAN setzt Venediger automatisch auf „anwesend“ (siehe Venediger-Konzept Anwesenheit, Abschnitt 6).
+- Echo-Routine „Guten Morgen“ mit Eigenverbrauch und Raumtemperaturen.
