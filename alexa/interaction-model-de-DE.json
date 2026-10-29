@@ -1,1 +1,404 @@
-
+{
+  "interactionModel": {
+    "languageModel": {
+      "invocationName": "heizung münchen",
+      "intents": [
+        {
+          "name": "AMAZON.CancelIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.HelpIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.StopIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.NavigateHomeIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.FallbackIntent",
+          "samples": []
+        },
+        {
+          "name": "EnergieIntent",
+          "slots": [],
+          "samples": [
+            "wie hoch ist der eigenverbrauch",
+            "wie hoch ist der eigenverbrauch heute",
+            "wie ist der eigenverbrauch",
+            "wie hoch ist die autarkie",
+            "wie viel sonnenstrom haben wir",
+            "wie viel strom macht die pv",
+            "wie voll ist der akku",
+            "wie voll ist die batterie",
+            "wie ist der akkustand",
+            "wie sieht es mit dem strom aus",
+            "wie ist die energie",
+            "energie",
+            "wie viel wird eingespeist",
+            "wie viel strom kommt aus dem netz"
+          ]
+        },
+        {
+          "name": "StatusIntent",
+          "slots": [],
+          "samples": [
+            "wie ist der status",
+            "was macht die heizung",
+            "status",
+            "wie läuft die heizung",
+            "in welchem modus ist die heizung",
+            "welche räume sind manuell gestellt",
+            "ist alles in ordnung"
+          ]
+        },
+        {
+          "name": "RaumTemperaturIntent",
+          "slots": [
+            {
+              "name": "raum",
+              "type": "RAUM"
+            }
+          ],
+          "samples": [
+            "wie warm ist es im {raum}",
+            "wie warm ist es in der {raum}",
+            "wie warm ist das {raum}",
+            "wie warm ist die {raum}",
+            "wie ist die temperatur im {raum}",
+            "wie ist die temperatur in der {raum}",
+            "welche temperatur hat das {raum}",
+            "welche temperatur hat die {raum}",
+            "wie kalt ist es im {raum}",
+            "temperatur im {raum}",
+            "temperatur {raum}",
+            "was hat das {raum}",
+            "heizt das {raum}"
+          ]
+        },
+        {
+          "name": "RaumStellenIntent",
+          "slots": [
+            {
+              "name": "raum",
+              "type": "RAUM"
+            },
+            {
+              "name": "temperatur",
+              "type": "AMAZON.NUMBER"
+            },
+            {
+              "name": "dauer",
+              "type": "AMAZON.DURATION"
+            }
+          ],
+          "samples": [
+            "stelle {raum} auf {temperatur} grad",
+            "stelle das {raum} auf {temperatur} grad",
+            "stelle die {raum} auf {temperatur} grad",
+            "stelle die temperatur im {raum} auf {temperatur} grad",
+            "stelle {raum} für {dauer} auf {temperatur} grad",
+            "stelle das {raum} für {dauer} auf {temperatur} grad",
+            "stelle {raum} auf {temperatur} grad für {dauer}",
+            "stelle das {raum} auf {temperatur} grad für {dauer}",
+            "stell das {raum} auf {temperatur} grad",
+            "stell die {raum} auf {temperatur} grad",
+            "{raum} auf {temperatur} grad",
+            "{raum} auf {temperatur} grad für {dauer}",
+            "das {raum} auf {temperatur} grad",
+            "heize {raum} auf {temperatur} grad",
+            "heize das {raum} auf {temperatur} grad",
+            "heize die {raum} auf {temperatur} grad",
+            "heize das {raum} für {dauer} auf {temperatur} grad",
+            "mach {raum} warm",
+            "mach das {raum} warm",
+            "mach die {raum} warm",
+            "mach das {raum} für {dauer} warm",
+            "mach die {raum} für {dauer} warm",
+            "heize {raum}",
+            "heize das {raum}",
+            "heize die {raum}",
+            "heize das {raum} für {dauer}",
+            "heize die {raum} für {dauer}",
+            "heiz das {raum} auf",
+            "ich möchte es im {raum} warm haben",
+            "ich möchte im {raum} {temperatur} grad",
+            "im {raum} {temperatur} grad",
+            "im {raum} {temperatur} grad für {dauer}"
+          ]
+        },
+        {
+          "name": "RaumAutomatikIntent",
+          "slots": [
+            {
+              "name": "raum",
+              "type": "RAUM"
+            }
+          ],
+          "samples": [
+            "{raum} wieder automatisch",
+            "das {raum} wieder automatisch",
+            "die {raum} wieder automatisch",
+            "stelle {raum} wieder auf automatik",
+            "stelle das {raum} wieder auf automatik",
+            "stelle die {raum} wieder auf automatik",
+            "beende die übersteuerung im {raum}",
+            "beende die übersteuerung in der {raum}",
+            "{raum} zurück auf automatik",
+            "das {raum} zurück auf automatik",
+            "hebe die übersteuerung im {raum} auf",
+            "{raum} normal"
+          ]
+        },
+        {
+          "name": "AlleAutomatikIntent",
+          "slots": [],
+          "samples": [
+            "alle räume wieder automatisch",
+            "alles wieder automatisch",
+            "beende alle übersteuerungen",
+            "alle übersteuerungen aufheben",
+            "alle räume zurück auf automatik"
+          ]
+        },
+        {
+          "name": "AutomatikIntent",
+          "slots": [
+            {
+              "name": "schalter",
+              "type": "SCHALTER"
+            }
+          ],
+          "samples": [
+            "automatik {schalter}",
+            "schalte die automatik {schalter}",
+            "die automatik {schalter}",
+            "ist die automatik an",
+            "ist die automatik aktiv"
+          ]
+        },
+        {
+          "name": "RaumNurIntent",
+          "slots": [
+            {
+              "name": "raum",
+              "type": "RAUM"
+            }
+          ],
+          "samples": [
+            "{raum}",
+            "das {raum}",
+            "die {raum}",
+            "im {raum}",
+            "in der {raum}",
+            "ich meine das {raum}",
+            "ich meine die {raum}",
+            "das im {raum}"
+          ]
+        }
+      ],
+      "types": [
+        {
+          "name": "RAUM",
+          "values": [
+            {
+              "name": {
+                "value": "KG Bad",
+                "synonyms": [
+                  "bad im keller",
+                  "keller bad",
+                  "kellerbad",
+                  "bad unten im keller",
+                  "untergeschoss bad"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "DG Bad",
+                "synonyms": [
+                  "bad im dachgeschoss",
+                  "dachgeschoss bad",
+                  "bad oben im dach",
+                  "bad unterm dach"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "DG Schlafzimmer",
+                "synonyms": [
+                  "schlafzimmer im dachgeschoss",
+                  "dachgeschoss schlafzimmer",
+                  "schlafzimmer unterm dach"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "DG Wohnen Essen Küche",
+                "synonyms": [
+                  "dg wohnen",
+                  "wohnen im dachgeschoss",
+                  "dachgeschoss wohnen",
+                  "küche im dachgeschoss",
+                  "wohnküche oben"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "OG Eltern Bad",
+                "synonyms": [
+                  "eltern bad",
+                  "elternbad",
+                  "bad der eltern",
+                  "bad im obergeschoss"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "OG Luis Bad",
+                "synonyms": [
+                  "luis bad",
+                  "bad von luis",
+                  "luis badezimmer"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "OG Büro",
+                "synonyms": [
+                  "büro im obergeschoss",
+                  "büro oben",
+                  "kleines zimmer",
+                  "obergeschoss büro"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "OG Luis Schlafzimmer",
+                "synonyms": [
+                  "luis schlafzimmer",
+                  "schlafzimmer von luis",
+                  "luis zimmer",
+                  "zimmer von luis"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "OG Eltern Schlafzimmer",
+                "synonyms": [
+                  "eltern schlafzimmer",
+                  "elternschlafzimmer",
+                  "schlafzimmer der eltern",
+                  "unser schlafzimmer"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "OG Ankleidezimmer",
+                "synonyms": [
+                  "ankleide",
+                  "ankleidezimmer",
+                  "ankleideraum"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "EG Büro",
+                "synonyms": [
+                  "büro im erdgeschoss",
+                  "büro unten",
+                  "erdgeschoss büro",
+                  "arbeitszimmer"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "EG Eingang",
+                "synonyms": [
+                  "eingang",
+                  "flur",
+                  "diele",
+                  "windfang"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "EG Küche Essbereich",
+                "synonyms": [
+                  "küche",
+                  "essbereich",
+                  "esszimmer",
+                  "küche im erdgeschoss"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "EG Wohnzimmer",
+                "synonyms": [
+                  "wohnzimmer",
+                  "wohnzimmer im erdgeschoss"
+                ]
+              }
+            },
+            {
+              "name": {
+                "value": "EG WC",
+                "synonyms": [
+                  "wc",
+                  "gäste wc",
+                  "gästeklo",
+                  "toilette",
+                  "klo"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "SCHALTER",
+          "values": [
+            {
+              "id": "an",
+              "name": {
+                "value": "an",
+                "synonyms": [
+                  "ein",
+                  "einschalten",
+                  "aktivieren",
+                  "anschalten"
+                ]
+              }
+            },
+            {
+              "id": "aus",
+              "name": {
+                "value": "aus",
+                "synonyms": [
+                  "ausschalten",
+                  "deaktivieren",
+                  "abschalten"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
