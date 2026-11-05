@@ -4,7 +4,7 @@ import { fmtDateTime, fmtT, modeMeta } from './lib.js';
 const KINDS = {
   mode: 'Moduswechsel',
   write: 'Sollwert',
-  sequence: 'Reihenfolge',
+  sequence: 'Priorität',
   error: 'Fehler',
   alexa: 'Alexa',
   ki: 'KI',
@@ -17,7 +17,7 @@ export default function Log({ data }) {
   return (
     <div className="stack">
       <div className="seg">
-        {[['all', 'Alle'], ['mode', 'Modus'], ['write', 'Sollwerte'], ['sequence', 'Reihenfolge'], ['alexa', 'Alexa'], ['ki', 'KI'], ['error', 'Fehler']].map(([k, l]) => (
+        {[['all', 'Alle'], ['mode', 'Modus'], ['write', 'Sollwerte'], ['sequence', 'Priorität'], ['alexa', 'Alexa'], ['ki', 'KI'], ['error', 'Fehler']].map(([k, l]) => (
           <button key={k} className={filter === k ? 'seg-btn active' : 'seg-btn'} onClick={() => setFilter(k)}>{l}</button>
         ))}
       </div>

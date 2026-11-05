@@ -224,8 +224,9 @@ export function roomTarget({ room, phase, level = 0, soc = null, now, settings }
  * Jeder Raum hat einen Rang (heat_rank, 1 = zuerst; gleicher Rang = gemeinsam).
  * Beteiligt sind nur Räume, die gerade mehr als ihren Absenkwert wollen (NORMAL, PV, VOLL).
  * Der vorderste Rang mit einem Raum, der seinen Sollwert noch nicht erreicht hat, ist „dran“.
- * Räume mit späterem Rang bekommen so lange ihren Absenkwert – das Ventil bleibt zu und das
- * Heizwasser geht in die Räume, die dran sind. Fertige Räume halten ihren Sollwert.
+ * Räume mit späterem Rang sind in Warteposition: Sie bekommen die Temperatur, die sie beim Beginn
+ * des Wartens hatten (Wartewert). So bleibt ihr Ventil zu und das Heizwasser geht in die Räume, die
+ * dran sind. Fertige Räume halten ihren Sollwert.
  *
  * „Erreicht“: Ist ≥ Soll − seq_on_delta. Mit Hysterese: Ein erreichter Raum gilt erst wieder als
  * offen, wenn er unter Soll − seq_off_delta fällt. Ohne Messwert blockiert ein Raum die anderen nicht.
@@ -236,13 +237,15 @@ export function roomTarget({ room, phase, level = 0, soc = null, now, settings }
  * @param items    [{ room, temp, t }] – t ist das Ergebnis von roomTarget()
  * @param reached  Set der Raum-IDs, die beim letzten Lauf als erreicht galten
  * @param turn     { rank, since } – welcher Rang seit wann dran ist (vom letzten Lauf)
- * @returns { items (mit angepasstem t), reached, turn, activeRank, waitingOn, reason }
+ * @param waits    { raumId: Wartewert } vom letzten Lauf
+ * @returns { items (mit angepasstem t), reached, turn, waits, activeRank, waitingOn, reason }
  */
-export function applyHeatSequence({ items, settings, reached = new Set(), turn = null, now = new Date() }) {
+export function applyHeatSequence({ items, settings, reached = new Set(), turn = null, waits = {}, now = new Date() }) {
   const out = items.map((it) => ({ ...it }));
   const newReached = new Set();
+  const newWaits = {};
   if (!settings.sequence_enabled) {
-    return { items: out, reached: newReached, turn: null, activeRank: null, waitingOn: [], reason: null };
+    return { items: out, reached: newReached, turn: null, waits: newWaits, activeRank: null, waitingOn: [], reason: null };
   }
   const onDelta = Number(settings.seq_on_delta ?? 0.3);
   const offDelta = Math.max(onDelta, Number(settings.seq_off_delta ?? 0.8));
@@ -260,7 +263,7 @@ export function applyHeatSequence({ items, settings, reached = new Set(), turn =
   }
   const open = part.filter((it) => !it.done);
   if (!open.length) {
-    return { items: out, reached: newReached, turn: null, activeRank: null, waitingOn: [], reason: part.length ? 'alle Räume haben ihren Sollwert' : null };
+    return { items: out, reached: newReached, turn: null, waits: newWaits, activeRank: null, waitingOn: [], reason: part.length ? 'alle Räume haben ihren Sollwert' : null };
   }
   const openRanks = [...new Set(open.map((it) => rankOf(it.room)))].sort((a, b) => a - b);
   const first = openRanks[0];
@@ -275,17 +278,24 @@ export function applyHeatSequence({ items, settings, reached = new Set(), turn =
     if (rankOf(it.room) <= activeRank) continue;
     const lo = Math.max(HARD_MIN, it.room.min_temp ?? HARD_MIN);
     const hi = Math.min(HARD_MAX, it.room.max_temp ?? HARD_MAX);
+    // Wartewert = Temperatur beim Beginn des Wartens (abgerundet auf 0,1 °C), nie über dem Sollwert.
+    // Ohne Messwert: Absenkwert.
+    const id = it.room.id;
+    const hasTemp = it.temp != null && !Number.isNaN(Number(it.temp));
+    let wait = waits[id] != null ? Number(waits[id]) : hasTemp ? Math.floor(Number(it.temp) * 10) / 10 : absenkOf(it.room);
+    wait = clamp(Math.min(wait, Number(it.t.target)), lo, hi);
+    newWaits[id] = wait;
     it.t = {
       mode: 'WARTET',
-      target: clamp(absenkOf(it.room), lo, hi),
-      reason: `Reihenfolge: wartet (Rang ${rankOf(it.room)}), zuerst ${names}`,
+      target: wait,
+      reason: `Prio ${rankOf(it.room)} wartet bei ${fmt1(wait)} °C, zuerst ${names}`,
       wanted: it.t.target,
     };
   }
-  const freed = activeRank !== first ? ` · nach ${Math.round(waited)} min auch bis Rang ${activeRank} freigegeben` : '';
+  const freed = activeRank !== first ? ` · nach ${Math.round(waited)} min auch Prio ${activeRank} freigegeben` : '';
   return {
-    items: out, reached: newReached, turn: newTurn, activeRank, waitingOn: waitingOn.map((it) => it.room.name),
-    reason: `Reihenfolge: Rang ${first} ist dran – ${names}${freed}`,
+    items: out, reached: newReached, turn: newTurn, waits: newWaits, activeRank, waitingOn: waitingOn.map((it) => it.room.name),
+    reason: `Prio ${first} ist dran – ${names}${freed}`,
   };
 }
 

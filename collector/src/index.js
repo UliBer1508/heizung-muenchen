@@ -14,7 +14,7 @@ import {
   shouldCaptureDayContext, applyHeatSequence,
 } from './logic.js';
 
-const VERSION = '0.7.0';
+const VERSION = '0.7.1';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const stateDir = process.env.STATE_DIR || path.join(here, '..', 'state');
 const cacheFile = path.join(stateDir, 'cache.json');
@@ -178,6 +178,7 @@ async function tick() {
     items, settings, now,
     reached: new Set(cache.seq?.reached || []),
     turn: cache.seq?.turn ? { rank: cache.seq.turn.rank, since: new Date(cache.seq.turn.since) } : null,
+    waits: cache.seq?.waits || {},
   });
   const seqKey = `${seq.activeRank ?? '-'}|${seq.waitingOn.join(',')}`;
   if (seq.reason && cache.seq?.key !== seqKey) {
@@ -186,7 +187,7 @@ async function tick() {
       kind: 'sequence', mode: house.mode, reason: seq.reason, dry_run: dryRun,
     }]));
   }
-  cache.seq = { reached: [...seq.reached], turn: seq.turn, key: seqKey, reason: seq.reason };
+  cache.seq = { reached: [...seq.reached], turn: seq.turn, waits: seq.waits, key: seqKey, reason: seq.reason };
 
   // … und schreiben.
   for (const { room, state, t } of seq.items) {

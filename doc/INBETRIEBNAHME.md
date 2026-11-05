@@ -225,13 +225,15 @@ select * from muc_forecast_accuracy(current_date - 14, current_date);
 
 ---
 
-## 11. Update: Heiz-Reihenfolge (Collector 0.7.0)
+## 11. Update: Raum-Prioritäten (Collector 0.7.1)
 
-Wie in Venediger: Räume werden **nacheinander** geheizt statt alle Ventile gleichzeitig.
-Rang 1 bekommt die Wärme zuerst. Räume mit späterem Rang bleiben auf ihrem **Absenkwert** (Ventil zu),
-bis alle Räume davor ihren Sollwert bis auf 0,3 °C erreicht haben. Fertige Räume halten ihren Wert;
-fällt einer unter Soll − 0,8 °C, ist er wieder zuerst dran. Kommt ein Rang 180 min nicht ans Ziel,
-darf zusätzlich der nächste (Schutz gegen ein klemmendes Ventil). Nachts bleibt alles auf Absenk.
+Wie in Venediger: Räume werden **nach Priorität** geheizt statt alle Ventile gleichzeitig.
+Jeder Raum hat **Prio 1, 2, 3 oder 4**. Prio 1 wird zuerst geheizt. Alle Räume mit höherer Prio sind in
+**Warteposition**: Sie bekommen die Temperatur, die sie beim Beginn des Wartens hatten – das Ventil bleibt zu.
+Haben alle Räume einer Prio ihren Sollwert bis auf 0,3 °C erreicht, kommt die nächste Prio dran.
+Fertige Räume halten ihren Sollwert; fällt einer unter Soll − 0,8 °C, ist seine Prio wieder zuerst dran.
+Kommt eine Prio 180 min nicht ans Ziel, darf zusätzlich die nächste (Schutz gegen ein klemmendes Ventil).
+Nachts bleibt alles auf Absenk, manuelle Werte (auch Alexa) haben Vorrang.
 
 1. Supabase: `supabase/migration-008-reihenfolge.sql` (am 05.11.2026 bereits ausgeführt).
 2. Mini-PC:
@@ -240,9 +242,9 @@ darf zusätzlich der nächste (Schutz gegen ein klemmendes Ventil). Nachts bleib
    git pull
    C:\nssm\nssm.exe restart HeizungMuenchen
    ```
-   Im Log erscheint „Collector 0.7.0 startet“ und z. B. „Reihenfolge: Rang 1 ist dran – EG Küche/Essbereich 21,4 von 22,0 °C“.
-3. App: *Einstellungen → Heiz-Reihenfolge* – mit ▲▼ sortieren, „mit oben“ = gleicher Rang (gemeinsam heizen),
-   *Reihenfolge speichern*. Dort auch der Schalter **Nach Reihenfolge heizen** (Aus = wie bis 0.6).
-   Wartende Räume zeigt die Übersicht als **Wartet**, Wechsel stehen im Protokoll unter **Reihenfolge**.
+   Im Log erscheint „Collector 0.7.1 startet“ und z. B. „Prio 1 ist dran – EG Küche/Essbereich 18,2 von 22,0 °C“.
+3. App: *Einstellungen → Raum-Prioritäten* – je Raum Prio 1–4 wählen, *Prioritäten speichern*.
+   Dort auch der Schalter **Nach Priorität heizen** (Aus = alle Räume gleichzeitig wie bis 0.6).
+   Wartende Räume zeigt die Übersicht als **Wartet**, Wechsel stehen im Protokoll unter **Priorität**.
 
 Feineinstellung in Supabase (`muc_settings`): `seq_on_delta`, `seq_off_delta`, `seq_max_minutes` (0 = nie freigeben).

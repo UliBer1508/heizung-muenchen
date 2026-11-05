@@ -154,9 +154,9 @@ test('Reihenfolge: Rang 1 zuerst, Rang 2 wartet mit Absenkwert', () => {
   const t = byId(res);
   assert.equal(t.A.target, 21);
   assert.equal(t.B.mode, 'WARTET');
-  assert.equal(t.B.target, 19);
+  assert.equal(t.B.target, 20);           // Wartewert = aktuelle Temperatur
   assert.equal(res.activeRank, 1);
-  assert.match(res.reason, /Rang 1 ist dran – A 20,0 von 21,0/);
+  assert.match(res.reason, /Prio 1 ist dran – A 20,0 von 21,0/);
 });
 
 test('Reihenfolge: Rang 1 erreicht → Rang 2 dran, Rang 1 hält seinen Wert', () => {
@@ -201,7 +201,7 @@ test('Reihenfolge: nach seq_max_minutes wird zusätzlich der nächste Rang frei'
   const later = applyHeatSequence({ items, settings: SQ, turn: first.turn, now: at('13:05') });
   assert.equal(byId(later).B.target, 21);
   assert.equal(byId(later).C.mode, 'WARTET');
-  assert.match(later.reason, /auch bis Rang 2 freigegeben/);
+  assert.match(later.reason, /auch Prio 2 freigegeben/);
 });
 
 test('Reihenfolge aus: alles wie bisher', () => {
@@ -213,4 +213,14 @@ test('Reihenfolge mit PV: PV-Wert zählt als Soll', () => {
   const t = byId(applyHeatSequence({ items: [item(r('A', 1), 21, 'TAG', 1), item(r('B', 2), 21, 'TAG', 1)], settings: SQ, now: at('12:00') }));
   assert.equal(t.A.target, 23);
   assert.equal(t.B.mode, 'WARTET');
+});
+
+test('Reihenfolge: Wartewert bleibt eingefroren, bis der Raum dran ist', () => {
+  const first = applyHeatSequence({ items: [item(r('A', 1), 18), item(r('B', 2), 18.27)], settings: SQ, now: at('12:00') });
+  assert.equal(byId(first).B.target, 18.2);
+  const cooler = applyHeatSequence({ items: [item(r('A', 1), 18.5), item(r('B', 2), 17.6)], settings: SQ, waits: first.waits, now: at('12:30') });
+  assert.equal(byId(cooler).B.target, 18.2); // hält die Temperatur vom Wartebeginn
+  const turn = applyHeatSequence({ items: [item(r('A', 1), 20.9), item(r('B', 2), 17.6)], settings: SQ, waits: cooler.waits, now: at('14:00') });
+  assert.equal(byId(turn).B.target, 21);     // jetzt dran → Sollwert
+  assert.equal(turn.waits.B, undefined);
 });

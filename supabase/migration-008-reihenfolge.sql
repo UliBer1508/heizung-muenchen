@@ -1,7 +1,7 @@
 -- Migration 008 – Heiz-Reihenfolge (Collector 0.7.0)
 --
 -- Wie in Venediger: Räume werden nacheinander geheizt.
---   muc_rooms.heat_rank        1 = zuerst; gleicher Rang = gemeinsam; leer = ganz hinten
+--   muc_rooms.heat_rank        Prio 1 = zuerst … 4 = zuletzt; gleiche Prio = gemeinsam
 --   muc_settings.sequence_enabled   Schalter (Aus = alle Räume heizen gleichzeitig wie bis 0.6)
 --   muc_settings.seq_on_delta       Raum gilt als fertig ab Soll − 0,3 °C
 --   muc_settings.seq_off_delta      … und wieder als offen unter Soll − 0,8 °C
