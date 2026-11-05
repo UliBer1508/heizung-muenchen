@@ -11,10 +11,10 @@ import { readOutdoorTemp, readEvccChargePower } from './extras.js';
 import { readFemsForecast } from './fems-rest.js';
 import {
   DEFAULT_SETTINGS, averageEnergy, phaseAt, desiredPvLevel, holdPvLevel, houseModeOf, roomTarget, needsWrite, surplusW,
-  shouldCaptureDayContext,
+  shouldCaptureDayContext, applyHeatSequence,
 } from './logic.js';
 
-const VERSION = '0.6.0';
+const VERSION = '0.7.0';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const stateDir = process.env.STATE_DIR || path.join(here, '..', 'state');
 const cacheFile = path.join(stateDir, 'cache.json');
@@ -159,9 +159,10 @@ async function tick() {
     profileColsWarned = true;
   }
 
-  // 3) Räume
+  // 3) Räume: erst alle lesen und Wunsch-Sollwert bestimmen …
   let loxoneOk = true;
   const roomRows = [];
+  const items = [];
   for (const room of cache.rooms) {
     const state = await readRoom(lox, room);
     if (state.errors.length) {
@@ -169,6 +170,26 @@ async function tick() {
       errors.push(...state.errors.map((m) => `${room.name}: ${m}`));
     }
     const t = roomTarget({ room, phase, level: house.level, soc: energy?.soc ?? null, now, settings });
+    items.push({ room, state, temp: state.temp, t });
+  }
+
+  // … dann die Heiz-Reihenfolge anwenden (ab 0.7) …
+  const seq = applyHeatSequence({
+    items, settings, now,
+    reached: new Set(cache.seq?.reached || []),
+    turn: cache.seq?.turn ? { rank: cache.seq.turn.rank, since: new Date(cache.seq.turn.since) } : null,
+  });
+  const seqKey = `${seq.activeRank ?? '-'}|${seq.waitingOn.join(',')}`;
+  if (seq.reason && cache.seq?.key !== seqKey) {
+    log(seq.reason);
+    await safeDb('decision', () => db.insert('muc_decisions', [{
+      kind: 'sequence', mode: house.mode, reason: seq.reason, dry_run: dryRun,
+    }]));
+  }
+  cache.seq = { reached: [...seq.reached], turn: seq.turn, key: seqKey, reason: seq.reason };
+
+  // … und schreiben.
+  for (const { room, state, t } of seq.items) {
     const lw = lastWritten.get(room.id);
     let written = false;
 
@@ -298,6 +319,7 @@ async function tick() {
     mode_since: new Date(house.since).toISOString(),
     mode_reason: house.reason,
     pending_mode: house.pending,
+    sequence_info: seq.reason,
     dry_run: dryRun,
     fenecon_ok: feneconOk,
     loxone_ok: loxoneOk,

@@ -219,6 +219,79 @@ export function roomTarget({ room, phase, level = 0, soc = null, now, settings }
 }
 
 /**
+ * Heiz-Reihenfolge (ab 0.7) – wie in Venediger: Räume werden nacheinander geheizt.
+ *
+ * Jeder Raum hat einen Rang (heat_rank, 1 = zuerst; gleicher Rang = gemeinsam).
+ * Beteiligt sind nur Räume, die gerade mehr als ihren Absenkwert wollen (NORMAL, PV, VOLL).
+ * Der vorderste Rang mit einem Raum, der seinen Sollwert noch nicht erreicht hat, ist „dran“.
+ * Räume mit späterem Rang bekommen so lange ihren Absenkwert – das Ventil bleibt zu und das
+ * Heizwasser geht in die Räume, die dran sind. Fertige Räume halten ihren Sollwert.
+ *
+ * „Erreicht“: Ist ≥ Soll − seq_on_delta. Mit Hysterese: Ein erreichter Raum gilt erst wieder als
+ * offen, wenn er unter Soll − seq_off_delta fällt. Ohne Messwert blockiert ein Raum die anderen nicht.
+ *
+ * Schutz gegen Hängenbleiben: Kommt ein Rang nach seq_max_minutes nicht ans Ziel (Ventil defekt,
+ * Wärmepumpe aus …), wird zusätzlich der nächste Rang freigegeben – je weitere seq_max_minutes einer mehr.
+ *
+ * @param items    [{ room, temp, t }] – t ist das Ergebnis von roomTarget()
+ * @param reached  Set der Raum-IDs, die beim letzten Lauf als erreicht galten
+ * @param turn     { rank, since } – welcher Rang seit wann dran ist (vom letzten Lauf)
+ * @returns { items (mit angepasstem t), reached, turn, activeRank, waitingOn, reason }
+ */
+export function applyHeatSequence({ items, settings, reached = new Set(), turn = null, now = new Date() }) {
+  const out = items.map((it) => ({ ...it }));
+  const newReached = new Set();
+  if (!settings.sequence_enabled) {
+    return { items: out, reached: newReached, turn: null, activeRank: null, waitingOn: [], reason: null };
+  }
+  const onDelta = Number(settings.seq_on_delta ?? 0.3);
+  const offDelta = Math.max(onDelta, Number(settings.seq_off_delta ?? 0.8));
+  const rankOf = (room) => (room.heat_rank == null ? 999 : Number(room.heat_rank));
+  const absenkOf = (room) => Number(room.temp_night);
+
+  const part = out.filter(({ room, t }) => t.mode !== MODES.OVERRIDE && t.mode !== 'ABSENK'
+    && Number(t.target) > absenkOf(room) + 0.05);
+  for (const it of part) {
+    const { room, temp, t } = it;
+    if (temp == null || Number.isNaN(Number(temp))) { it.done = true; continue; }
+    const limit = reached.has(room.id) ? t.target - offDelta : t.target - onDelta;
+    it.done = Number(temp) >= limit - 1e-9;
+    if (it.done) newReached.add(room.id);
+  }
+  const open = part.filter((it) => !it.done);
+  if (!open.length) {
+    return { items: out, reached: newReached, turn: null, activeRank: null, waitingOn: [], reason: part.length ? 'alle Räume haben ihren Sollwert' : null };
+  }
+  const openRanks = [...new Set(open.map((it) => rankOf(it.room)))].sort((a, b) => a - b);
+  const first = openRanks[0];
+  const newTurn = turn && turn.rank === first && turn.since ? { rank: first, since: turn.since } : { rank: first, since: now };
+  const maxMin = Number(settings.seq_max_minutes ?? 180);
+  const waited = (now - new Date(newTurn.since)) / 60000;
+  const extra = maxMin > 0 ? Math.floor(waited / maxMin) : 0;
+  const activeRank = openRanks[Math.min(extra, openRanks.length - 1)];
+  const waitingOn = open.filter((it) => rankOf(it.room) === first);
+  const names = waitingOn.map((it) => `${it.room.name} ${fmt1(it.temp)} von ${fmt1(it.t.target)} °C`).join(', ');
+  for (const it of part) {
+    if (rankOf(it.room) <= activeRank) continue;
+    const lo = Math.max(HARD_MIN, it.room.min_temp ?? HARD_MIN);
+    const hi = Math.min(HARD_MAX, it.room.max_temp ?? HARD_MAX);
+    it.t = {
+      mode: 'WARTET',
+      target: clamp(absenkOf(it.room), lo, hi),
+      reason: `Reihenfolge: wartet (Rang ${rankOf(it.room)}), zuerst ${names}`,
+      wanted: it.t.target,
+    };
+  }
+  const freed = activeRank !== first ? ` · nach ${Math.round(waited)} min auch bis Rang ${activeRank} freigegeben` : '';
+  return {
+    items: out, reached: newReached, turn: newTurn, activeRank, waitingOn: waitingOn.map((it) => it.room.name),
+    reason: `Reihenfolge: Rang ${first} ist dran – ${names}${freed}`,
+  };
+}
+
+const fmt1 = (v) => (v == null ? '?' : Number(v).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 }));
+
+/**
  * Tagesprotokoll (ab 0.6): einmal am Tag beim ersten Lauf außerhalb der Nacht erfassen –
  * normalerweise direkt bei „Morgen ab“. Dann hält das Protokoll fest, was das FEMS für den
  * Tag vorhergesagt hat, bevor die Heizung darauf reagieren konnte.
@@ -272,4 +345,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   full_export_w: 3000,
   hold_minutes: 30,
   average_minutes: 5,
+  sequence_enabled: false, // Heiz-Reihenfolge (Migration 008 schaltet sie ein)
+  seq_on_delta: 0.3,    // Raum gilt als fertig ab Soll − 0,3 °C
+  seq_off_delta: 0.8,   // … und wieder als offen unter Soll − 0,8 °C
+  seq_max_minutes: 180, // kommt ein Rang so lange nicht ans Ziel, darf zusätzlich der nächste
 });

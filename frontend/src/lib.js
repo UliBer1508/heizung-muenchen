@@ -12,6 +12,7 @@ export const MODE_META = {
   // Raum
   NORMAL: { label: 'Normal', tone: 'neutral', hint: 'Raum auf Normaltemperatur' },
   ABSENK: { label: 'Absenk', tone: 'night', hint: 'Raum auf Absenkwert' },
+  WARTET: { label: 'Wartet', tone: 'night', hint: 'Heiz-Reihenfolge: ein Raum mit höherem Rang ist zuerst dran' },
   PV: { label: 'PV', tone: 'sun', hint: 'Raum lädt den Estrich mit Sonnenstrom' },
   VOLL: { label: 'Voll', tone: 'green', hint: 'Batterie voll – maximal laden' },
   OVERRIDE: { label: 'Manuell', tone: 'rose', hint: 'Manueller Sollwert aktiv' },

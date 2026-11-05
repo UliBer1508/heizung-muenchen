@@ -158,6 +158,118 @@ function Heizplan({ rooms, settings, reload, setMsg }) {
   );
 }
 
+
+// Heiz-Reihenfolge (ab 0.7): Rang 1 wird zuerst geheizt, die nächsten Räume warten mit
+// Absenkwert (Ventil zu), bis die vorderen ihren Sollwert erreicht haben.
+function toGroups(rooms) {
+  const list = rooms.filter((r) => r.enabled)
+    .sort((a, b) => (a.heat_rank ?? 999) - (b.heat_rank ?? 999) || (a.sort ?? 0) - (b.sort ?? 0));
+  return list.map((r, i) => ({
+    id: r.id, name: r.name,
+    together: i > 0 && r.heat_rank != null && r.heat_rank === list[i - 1].heat_rank,
+  }));
+}
+function ranksOf(list) {
+  let rank = 0;
+  return list.map((r, i) => { if (i === 0 || !r.together) rank += 1; return { ...r, rank }; });
+}
+
+function Reihenfolge({ data, settings, reload, setMsg }) {
+  const [list, setList] = useState(() => toGroups(data.rooms));
+  const [busy, setBusy] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [open, setOpen] = useState(() => {
+    try { return localStorage.getItem('seq-open') !== '0'; } catch { return true; }
+  });
+  const toggle = () => setOpen((o) => {
+    try { localStorage.setItem('seq-open', o ? '0' : '1'); } catch {}
+    return !o;
+  });
+  const ranked = ranksOf(list);
+  const move = (i, d) => {
+    const j = i + d;
+    if (j < 0 || j >= list.length) return;
+    const next = [...list];
+    [next[i], next[j]] = [next[j], next[i]];
+    next[0] = { ...next[0], together: false };
+    setList(next);
+    setDirty(true);
+  };
+  const setTogether = (i, v) => { setList((l) => l.map((r, k) => (k === i ? { ...r, together: v } : r))); setDirty(true); };
+
+  const save = async () => {
+    setBusy(true);
+    setMsg(null);
+    for (const r of ranked) {
+      const { error } = await supabase.from('muc_rooms').update({ heat_rank: r.rank }).eq('id', r.id);
+      if (error) { setMsg({ err: true, t: `${r.name}: ${error.message}` }); setBusy(false); return; }
+    }
+    setMsg({ t: 'Reihenfolge gespeichert. Der Collector übernimmt sie innerhalb einer Minute.' });
+    setDirty(false);
+    await reload();
+    setBusy(false);
+  };
+  const setEnabled = async (v) => {
+    setBusy(true);
+    const { error } = await supabase.from('muc_settings').update({ sequence_enabled: v }).eq('id', 1);
+    setMsg(error ? { err: true, t: error.message } : { t: v ? 'Heiz-Reihenfolge eingeschaltet.' : 'Heiz-Reihenfolge ausgeschaltet – alle Räume heizen gleichzeitig.' });
+    await reload();
+    setBusy(false);
+  };
+
+  const on = !!settings.sequence_enabled;
+  const live = data.latestByRoom || {};
+  const summary = on ? `An · ${ranked.length ? ranked[ranked.length - 1].rank : 0} Ränge` : 'Aus – alle Räume gleichzeitig';
+  return (
+    <section className="card">
+      <button type="button" className="collapse-head" onClick={toggle} aria-expanded={open}>
+        <span className="section-title">Heiz-Reihenfolge <span className="plan-sub">welcher Raum zuerst warm wird</span></span>
+        <span className={`collapse-sum ${dirty ? 'warn-text' : ''}`}>{dirty ? 'Nicht gespeicherte Änderungen' : open ? '' : summary}</span>
+        <span className={`collapse-chev ${open ? 'open' : ''}`} aria-hidden="true">▶</span>
+      </button>
+      {open && <>
+      <div className="switch-row">
+        <div>
+          <div><strong>Nach Reihenfolge heizen</strong></div>
+          <div className="muted small">
+            Rang 1 bekommt die Wärme zuerst. Räume weiter unten bleiben auf ihrem Absenkwert (Ventil zu), bis alle Räume davor
+            ihren Sollwert bis auf {String(settings.seq_on_delta ?? 0.3).replace('.', ',')} °C erreicht haben. Fertige Räume halten ihren Wert.
+            Kommt ein Rang {settings.seq_max_minutes ?? 180} min lang nicht ans Ziel, darf zusätzlich der nächste.
+          </div>
+        </div>
+        <button className={`toggle ${on ? 'on' : ''}`} disabled={busy} onClick={() => setEnabled(!on)}>{on ? 'An' : 'Aus'}</button>
+      </div>
+      {data.status?.sequence_info && <div className="notice small">Jetzt: {data.status.sequence_info}</div>}
+      <ol className="seq-list">
+        {ranked.map((r, i) => {
+          const rr = live[r.id];
+          return (
+            <li key={r.id} className={r.together ? 'seq-row together' : 'seq-row'}>
+              <span className="seq-rank">{r.together ? '' : r.rank}</span>
+              <span className="seq-name">
+                {r.name}
+                {rr && <span className="muted small"> · {rr.temp != null ? `${Number(rr.temp).toLocaleString('de-DE', { maximumFractionDigits: 1 })} °C` : '–'} → {rr.target != null ? `${Number(rr.target).toLocaleString('de-DE')} °C` : '–'}{rr.mode === 'WARTET' ? ' · wartet' : ''}</span>}
+              </span>
+              {i > 0 && (
+                <label className="seq-tog small" title="Gleicher Rang wie der Raum darüber – beide werden gemeinsam geheizt">
+                  <input type="checkbox" checked={r.together} onChange={(e) => setTogether(i, e.target.checked)} /> mit oben
+                </label>
+              )}
+              <span className="seq-btns">
+                <button type="button" className="btn small" disabled={i === 0} onClick={() => move(i, -1)} aria-label={`${r.name} nach oben`}>▲</button>
+                <button type="button" className="btn small" disabled={i === ranked.length - 1} onClick={() => move(i, 1)} aria-label={`${r.name} nach unten`}>▼</button>
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+      <div className="muted small">„mit oben“ = gleicher Rang wie der Raum darüber, beide heizen gemeinsam. Nachts gilt weiter: alle Räume auf Absenk.</div>
+      <button className="btn primary" disabled={busy || !dirty} onClick={save}>{busy ? 'Speichert …' : 'Reihenfolge speichern'}</button>
+      </>}
+    </section>
+  );
+}
+
 export default function Settings({ data, reload }) {
   const [s, setS] = useState(data.settings);
   const [rooms, setRooms] = useState(data.rooms);
@@ -227,6 +339,12 @@ export default function Settings({ data, reload }) {
         <div className="alert">Für den Heizplan bitte zuerst <strong>supabase/migration-005-raumprofile.sql</strong> in Supabase ausführen.</div>
       ) : (
         <Heizplan rooms={data.rooms} settings={s} reload={reload} setMsg={setMsg} />
+      )}
+
+      {data.rooms.length > 0 && data.rooms[0].heat_rank === undefined ? (
+        <div className="alert">Für die Heiz-Reihenfolge bitte zuerst <strong>supabase/migration-008-reihenfolge.sql</strong> in Supabase ausführen.</div>
+      ) : (
+        <Reihenfolge key={data.rooms.map((r) => `${r.id}:${r.heat_rank}:${r.enabled}`).join('|')} data={data} settings={data.settings} reload={reload} setMsg={setMsg} />
       )}
 
       <section className="card">

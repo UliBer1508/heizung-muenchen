@@ -28,6 +28,7 @@ function ModeHero({ status }) {
       <div className="eyebrow">Betriebsmodus</div>
       <div className="hero-mode">{m.label}</div>
       <div className="hero-reason">{status?.mode_reason || m.hint}</div>
+      {status?.sequence_info && <div className="hero-reason">↳ {status.sequence_info}</div>}
       <div className="muted small">
         seit {fmtTime(status?.mode_since)}
         {pending && <> · Wechsel zu <strong>{pending.label}</strong> wartet auf Haltezeit</>}

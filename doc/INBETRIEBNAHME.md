@@ -222,3 +222,27 @@ Kontrolle in Supabase:
 select day, source, late, fc_ts, fc_pv_6h, fc_prev_noon_pv from muc_day_context order by day desc limit 7;
 select * from muc_forecast_accuracy(current_date - 14, current_date);
 ```
+
+---
+
+## 11. Update: Heiz-Reihenfolge (Collector 0.7.0)
+
+Wie in Venediger: Räume werden **nacheinander** geheizt statt alle Ventile gleichzeitig.
+Rang 1 bekommt die Wärme zuerst. Räume mit späterem Rang bleiben auf ihrem **Absenkwert** (Ventil zu),
+bis alle Räume davor ihren Sollwert bis auf 0,3 °C erreicht haben. Fertige Räume halten ihren Wert;
+fällt einer unter Soll − 0,8 °C, ist er wieder zuerst dran. Kommt ein Rang 180 min nicht ans Ziel,
+darf zusätzlich der nächste (Schutz gegen ein klemmendes Ventil). Nachts bleibt alles auf Absenk.
+
+1. Supabase: `supabase/migration-008-reihenfolge.sql` (am 05.11.2026 bereits ausgeführt).
+2. Mini-PC:
+   ```powershell
+   cd C:\Users\ulibe\heizung-muenchen
+   git pull
+   C:\nssm\nssm.exe restart HeizungMuenchen
+   ```
+   Im Log erscheint „Collector 0.7.0 startet“ und z. B. „Reihenfolge: Rang 1 ist dran – EG Küche/Essbereich 21,4 von 22,0 °C“.
+3. App: *Einstellungen → Heiz-Reihenfolge* – mit ▲▼ sortieren, „mit oben“ = gleicher Rang (gemeinsam heizen),
+   *Reihenfolge speichern*. Dort auch der Schalter **Nach Reihenfolge heizen** (Aus = wie bis 0.6).
+   Wartende Räume zeigt die Übersicht als **Wartet**, Wechsel stehen im Protokoll unter **Reihenfolge**.
+
+Feineinstellung in Supabase (`muc_settings`): `seq_on_delta`, `seq_off_delta`, `seq_max_minutes` (0 = nie freigeben).

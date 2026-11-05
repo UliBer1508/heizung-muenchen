@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   DEFAULT_SETTINGS as S, inWindow, parseHm, surplusW, phaseAt, desiredPvLevel, holdPvLevel, houseModeOf,
-  roomTarget, needsWrite, averageEnergy, localMinutes, PV_FULL, shouldCaptureDayContext,
+  roomTarget, needsWrite, averageEnergy, localMinutes, PV_FULL, shouldCaptureDayContext, applyHeatSequence,
 } from '../src/logic.js';
 
 // Zeitpunkt in Berliner Ortszeit (Ende Oktober 2026 = UTC+1)
@@ -140,4 +140,77 @@ test('Tagesprotokoll: einmal am Tag, nicht nachts', () => {
   assert.equal(shouldCaptureDayContext({ phase: 'MORGEN', today: '2026-10-28', lastCapturedDay: '2026-10-27' }), true);
   assert.equal(shouldCaptureDayContext({ phase: 'TAG', today: '2026-10-28', lastCapturedDay: '2026-10-28' }), false);
   assert.equal(shouldCaptureDayContext({ phase: 'ABEND', today: '2026-10-28', lastCapturedDay: null }), true); // Start am Abend
+});
+
+// ---------------------------------------------------------------------------
+// Heiz-Reihenfolge (0.7)
+const SQ = { ...S, sequence_enabled: true };
+const r = (id, rank, extra = {}) => ({ ...kueche, id, name: id, heat_rank: rank, ...extra });
+const item = (room, temp, phase = 'TAG', level = 0) => ({ room, temp, t: T(room, phase, level) });
+const byId = (res) => Object.fromEntries(res.items.map((it) => [it.room.id, it.t]));
+
+test('Reihenfolge: Rang 1 zuerst, Rang 2 wartet mit Absenkwert', () => {
+  const res = applyHeatSequence({ items: [item(r('A', 1), 20), item(r('B', 2), 20)], settings: SQ, now: at('12:00') });
+  const t = byId(res);
+  assert.equal(t.A.target, 21);
+  assert.equal(t.B.mode, 'WARTET');
+  assert.equal(t.B.target, 19);
+  assert.equal(res.activeRank, 1);
+  assert.match(res.reason, /Rang 1 ist dran – A 20,0 von 21,0/);
+});
+
+test('Reihenfolge: Rang 1 erreicht → Rang 2 dran, Rang 1 hält seinen Wert', () => {
+  const res = applyHeatSequence({ items: [item(r('A', 1), 20.8), item(r('B', 2), 20), item(r('C', 3), 20)], settings: SQ, now: at('12:00') });
+  const t = byId(res);
+  assert.equal(t.A.target, 21);
+  assert.equal(t.B.target, 21);
+  assert.equal(t.C.mode, 'WARTET');
+  assert.ok(res.reached.has('A'));
+});
+
+test('Reihenfolge: gleicher Rang heizt gemeinsam', () => {
+  const t = byId(applyHeatSequence({ items: [item(r('A', 1), 20), item(r('B', 1), 20), item(r('C', 2), 20)], settings: SQ, now: at('12:00') }));
+  assert.equal(t.A.target, 21);
+  assert.equal(t.B.target, 21);
+  assert.equal(t.C.mode, 'WARTET');
+});
+
+test('Reihenfolge: Hysterese – erreichter Raum fällt erst unter Soll − 0,8 zurück', () => {
+  const reached = new Set(['A']);
+  const still = byId(applyHeatSequence({ items: [item(r('A', 1), 20.4), item(r('B', 2), 20)], settings: SQ, reached, now: at('12:00') }));
+  assert.equal(still.B.target, 21); // A bei 20,4 gilt weiter als fertig
+  const back = byId(applyHeatSequence({ items: [item(r('A', 1), 20.1), item(r('B', 2), 20)], settings: SQ, reached, now: at('12:00') }));
+  assert.equal(back.B.mode, 'WARTET'); // A unter 20,2 → wieder dran
+});
+
+test('Reihenfolge: Absenk-, manuelle und Räume ohne Messwert blockieren nicht', () => {
+  const man = r('M', 1, { override_temp: 24, override_until: '2026-10-28T13:00:00+01:00' });
+  const t = byId(applyHeatSequence({
+    items: [item(man, 18), item(r('S', 1, { heat_day: false, pv_prio: 3 }), 15), item(r('X', 2), null), item(r('B', 3), 20)],
+    settings: SQ, now: at('12:00'),
+  }));
+  assert.equal(t.M.mode, 'OVERRIDE');
+  assert.equal(t.S.mode, 'ABSENK');
+  assert.equal(t.B.target, 21); // M (manuell), S (Absenk) und X (kein Messwert) halten B nicht auf
+});
+
+test('Reihenfolge: nach seq_max_minutes wird zusätzlich der nächste Rang frei', () => {
+  const items = [item(r('A', 1), 19.5), item(r('B', 2), 19.5), item(r('C', 3), 19.5)];
+  const first = applyHeatSequence({ items, settings: SQ, now: at('10:00') });
+  assert.equal(byId(first).B.mode, 'WARTET');
+  const later = applyHeatSequence({ items, settings: SQ, turn: first.turn, now: at('13:05') });
+  assert.equal(byId(later).B.target, 21);
+  assert.equal(byId(later).C.mode, 'WARTET');
+  assert.match(later.reason, /auch bis Rang 2 freigegeben/);
+});
+
+test('Reihenfolge aus: alles wie bisher', () => {
+  const t = byId(applyHeatSequence({ items: [item(r('A', 1), 15), item(r('B', 2), 15)], settings: S, now: at('12:00') }));
+  assert.equal(t.B.target, 21);
+});
+
+test('Reihenfolge mit PV: PV-Wert zählt als Soll', () => {
+  const t = byId(applyHeatSequence({ items: [item(r('A', 1), 21, 'TAG', 1), item(r('B', 2), 21, 'TAG', 1)], settings: SQ, now: at('12:00') }));
+  assert.equal(t.A.target, 23);
+  assert.equal(t.B.mode, 'WARTET');
 });
