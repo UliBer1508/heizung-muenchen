@@ -4,6 +4,7 @@ import Overview from './Overview.jsx';
 import Analyse from './Analyse.jsx';
 import Settings from './Settings.jsx';
 import Log from './Log.jsx';
+import SystemStatusButton from './SystemStatus.jsx';
 
 const ICONS = {
   overview: <path d="M3 11.5 12 4l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" />,
@@ -122,7 +123,11 @@ function Shell({ session }) {
             </button>
           ))}
         </nav>
-        <button className="btn ghost small" onClick={() => supabase.auth.signOut()} title={session.user.email}>Abmelden</button>
+        <div className="topbar-right">
+          {/* Systemstatus: laufen alle Prozesse auf beiden PCs und in der Cloud? (05.11.2026) */}
+          <SystemStatusButton />
+          <button className="btn ghost small" onClick={() => supabase.auth.signOut()} title={session.user.email}>Abmelden</button>
+        </div>
       </header>
       <main className="content">
         {live.error && <div className="alert">Daten konnten nicht geladen werden: {live.error}</div>}
