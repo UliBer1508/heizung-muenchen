@@ -5,10 +5,12 @@ import Analyse from './Analyse.jsx';
 import Settings from './Settings.jsx';
 import Log from './Log.jsx';
 import SystemStatusButton from './SystemStatus.jsx';
+import Ki, { useKiOpen } from './Ki.jsx';
 
 const ICONS = {
   overview: <path d="M3 11.5 12 4l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" />,
   analyse: <path d="M4 19h16M6 16l4-5 3 3 5-7" />,
+  ki: <path d="M12 3l1.8 4.6L18.5 9.5l-4.7 1.9L12 16l-1.8-4.6L5.5 9.5l4.7-1.9zM19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z" />,
   log: <path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01" />,
   settings: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></>,
 };
@@ -16,6 +18,7 @@ const ICONS = {
 const TABS = [
   { id: 'overview', label: 'Übersicht' },
   { id: 'analyse', label: 'Analyse' },
+  { id: 'ki', label: 'KI' },
   { id: 'log', label: 'Protokoll' },
   { id: 'settings', label: 'Einstellungen' },
 ];
@@ -107,6 +110,8 @@ export function useLiveData(intervalMs = 30000) {
 function Shell({ session }) {
   const [tab, setTab] = useState('overview');
   const live = useLiveData();
+  const ki = useKiOpen();
+  const kiCount = ki.suggestions + ki.hints.length;
   return (
     <div className="app">
       <header className="topbar">
@@ -119,7 +124,7 @@ function Shell({ session }) {
             <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? 'tab active' : 'tab'}
               onClick={() => { setTab(t.id); window.scrollTo(0, 0); }}>
               <TabIcon id={t.id} />
-              <span>{t.label}</span>
+              <span>{t.label}{t.id === 'ki' && kiCount > 0 && <b className={ki.hints.length ? 'badge rose' : 'badge'}>{kiCount}</b>}</span>
             </button>
           ))}
         </nav>
@@ -132,8 +137,14 @@ function Shell({ session }) {
       <main className="content">
         {live.error && <div className="alert">Daten konnten nicht geladen werden: {live.error}</div>}
         {!live.data && !live.error && <div className="muted">Lade …</div>}
+        {tab !== 'ki' && ki.hints.length > 0 && (
+          <button type="button" className="ki-banner" onClick={() => { setTab('ki'); window.scrollTo(0, 0); }}>
+            <strong>KI-Hinweis:</strong> {ki.hints.map((h) => h.title).join(' · ')} <span className="ki-banner-go">ansehen ›</span>
+          </button>
+        )}
         {live.data && tab === 'overview' && <Overview data={live.data} reload={live.reload} />}
         {live.data && tab === 'analyse' && <Analyse settings={live.data.settings} rooms={live.data.rooms} />}
+        {live.data && tab === 'ki' && <Ki rooms={live.data.rooms} onChanged={() => { ki.reload(); live.reload(); }} />}
         {live.data && tab === 'log' && <Log data={live.data} />}
         {live.data && tab === 'settings' && <Settings data={live.data} reload={live.reload} />}
       </main>

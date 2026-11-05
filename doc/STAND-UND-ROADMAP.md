@@ -1,6 +1,6 @@
 # Heizung München – Projektstand und Roadmap
 
-Stand: 29.10.2026 · Collector-Version 0.6.0 · Alexa-Skill „Meine Heizung“
+Stand: 05.11.2026 · Collector-Version 0.6.0 · Alexa-Skill „Meine Heizung“ · KI (migration-007)
 
 Dieses Dokument fasst zusammen, was bisher umgesetzt wurde, welche Phasen noch offen sind
 und was darüber hinaus empfehlenswert ist. Technische Details stehen in
@@ -129,6 +129,17 @@ Namen ohne Umlaute verwenden (z. B. „Buero“), sonst drohen 404-Fehler beim W
 - **Einstellungen:** Testmodus, Automatik, **Heizplan je Raum** (seit 0.5; seit 0.6.2 einklappbar, mit den resultierenden Sollwerten je Tageszeit und mit Sonne sowie dem Hinweis, dass die Wärmepumpe nach eigenem Zeitprogramm heizt), Tagesablauf, PV-Stufen, Schwellwerte, Grundlast,
   Temperaturen je Raum.
 
+### 2.4b KI (05.11.2026, migration-007)
+
+Nach dem Venediger-Vorbild „KI analysiert und schlägt vor – Uli entscheidet“, komplett in Supabase (pg_cron `muc-ki-tick`
+alle 15 min), ohne Änderung am Collector. Details: [`KI.md`](KI.md).
+- **Raummodell:** Abkühlung je Raum und Nacht (`muc_room_nights`), gelerntes k, Vorhersage für die kommende Nacht.
+- **Tägliche Analyse ab 09:00:** Rückblick auf gestern und Vorschläge (Absenk, PV-Laden je Raum) mit Begründung aus Messwerten;
+  Ja / Anderer Wert / Nein in der App; Wirkungsbericht nach 3 Tagen, bei Verschlechterung Rücknahme-Vorschlag.
+- **Sofort-Hinweise:** Wärmepumpe liefert keine Wärme, Collector still, Raumwerte fehlen, Automatik/Testmodus lange aus.
+- Anlass: Die Wärmepumpe lieferte vom 30.10. bis 04.11.2026 abends keine Wärme (Heizstrom ~0,5 kWh/Tag bei offenen Ventilen),
+  und die Automatik war vom 03.11. bis 05.11. aus – beides fiel erst auf, als es kalt war.
+
 ### 2.4a Alexa-Skill „Meine Heizung“ (29.10.2026)
 
 Sprachsteuerung für **München und Venediger** über die Supabase Edge Function `alexa-heizung`
@@ -211,7 +222,7 @@ Seit 0.5 heißen die Spalten in der App *Absenk / Normal / PV-Laden / Batterie v
   Sonnenscheindauer heute, PV-Leistung in 1/3/6/12/24/36 h, Hausverbrauch in 1/3/6/12/24/36 h.
   Einschränkung: nur diese Zeitpunkte, keine Stundenkurve.
 - Hinweis: Die „netzdienliche Beladung“ im FEMS (`ctrlGridOptimizedCharge0`) nutzt dieselbe Prognose; sie wurde am 22.10.2026 für die evcc-Einstellungen ausgeschaltet.
-- Automatische Empfehlungen aus den Raumkennzahlen (z. B. „DG Bad hält Wärme 5 h – PV-Temperatur +0,5 °C“) – Teil von Stufe B.
+- ✅ Automatische Empfehlungen aus den Raumkennzahlen – umgesetzt als KI-Vorschläge mit Raummodell (05.11.2026, `KI.md`).
 
 ---
 
@@ -264,8 +275,7 @@ in Loxone die Verbindung „virtueller Eingang → ϑch“ löschen.
   die Raumventile bestimmen, *wohin* die Wärme geht, nicht *wann* sie erzeugt wird.
 - Der Loxone-Raumregler schaltet das Ventil nicht exakt am Sollwert ab, sondern mit Nachlauf/Toleranz
   (beobachtet: Ventil offen bei 0,2 K über Soll). Für die PV-Anhebung unkritisch.
-- Die GitHub-Verbindung von Claude kann nur lesen; Updates werden als ZIP geliefert und per
-  „Upload files“ hochgeladen.
+- Seit 05.11.2026 kann Claude direkt ins Repo schreiben (Pull Request); Vercel baut danach automatisch.
 
 ---
 

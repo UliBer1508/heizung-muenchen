@@ -237,7 +237,7 @@ select, input[type='number'], input[type='time'], input[type='email'], input[typ
   .brand-title { font-size: 17px; }
   .tabs {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
-    display: grid; grid-template-columns: repeat(4, 1fr); gap: 0;
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 0;
     background: var(--card); border-top: 1px solid var(--line);
     padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
     overflow: visible;
@@ -386,4 +386,32 @@ select, input[type='number'], input[type='time'], input[type='email'], input[typ
   .sys-overlay { padding: calc(12px + env(safe-area-inset-top)) 8px 12px; }
   .sys-row { flex-wrap: wrap; }
   .sys-actions { width: 100%; justify-content: flex-end; }
+}
+
+/* ---------- KI (05.11.2026) ---------- */
+.badge { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 5px; border-radius: 999px; font-size: 11px; line-height: 18px; text-align: center; background: var(--cool); color: var(--card); font-weight: 600; }
+.badge.rose { background: var(--rose); }
+.ki-banner { display: block; width: 100%; text-align: left; margin-bottom: 16px; border: 1px solid var(--rose); background: var(--rose-bg); color: var(--rose); padding: 10px 14px; border-radius: 10px; font: inherit; font-size: 14px; cursor: pointer; }
+.ki-banner-go { float: right; font-weight: 600; }
+.ki-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
+.ki-review { background: var(--neutral-bg); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
+.ki-list { display: flex; flex-direction: column; gap: 10px; }
+.ki-item { border-radius: 10px; padding: 12px 14px; border-left: 4px solid; display: flex; flex-direction: column; gap: 6px; }
+.ki-item.tone-cool { background: var(--cool-bg); border-color: var(--cool); }
+.ki-item.tone-sun { background: var(--sun-bg); border-color: var(--sun); }
+.ki-item.tone-rose { background: var(--rose-bg); border-color: var(--rose); }
+.ki-title { font-weight: 600; }
+.ki-row { display: grid; grid-template-columns: 150px 1fr; gap: 8px; font-size: 14px; }
+.ki-label { color: var(--muted); font-size: 13px; }
+.ki-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.ki-actions .btn { white-space: nowrap; }
+.ki-table td { white-space: nowrap; }
+.ki-table td:first-child { white-space: normal; }
+.ki-input label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); max-width: 320px; }
+.ki-input input { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); }
+@media (max-width: 640px) {
+  .ki-row { grid-template-columns: 1fr; gap: 0; }
+  .ki-head { flex-direction: column; }
+  .ki-actions .btn { flex: 1 1 auto; }
+  .ptable .hide-sm { display: none; }
 }
