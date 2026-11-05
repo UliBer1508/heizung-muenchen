@@ -159,15 +159,13 @@ function Heizplan({ rooms, settings, reload, setMsg }) {
 }
 
 
-// Heiz-Prioritäten (ab 0.7): Prio 1 wird zuerst geheizt. Räume mit höherer Prio warten bei der
-// Temperatur, die sie gerade haben (Ventil zu), bis alle Räume davor ihren Sollwert erreicht haben.
-const PRIOS = [1, 2, 3, 4];
-
+// Heiz-Reihenfolge wie in Venediger (ab 0.9): jeder Raum hat eine eigene Priorität P1, P2, P3 …
+// (eindeutig, Spalte muc_rooms.priority). Mit ▲▼ zwei benachbarte Räume tauschen.
+// Die Automatik heizt zuerst P1, dann P2 … – höchstens „Gleichzeitig heizen“ Räume auf einmal.
+// Wer nicht dran ist, wartet bei der Temperatur, die er gerade hat (Ventil zu).
 function Reihenfolge({ data, settings, reload, setMsg }) {
-  const rooms = data.rooms.filter((r) => r.enabled);
-  const [prio, setPrio] = useState(() => Object.fromEntries(rooms.map((r) => [r.id, Math.min(4, r.heat_rank ?? 4)])));
-  const [busy, setBusy] = useState(false);
-  const [dirty, setDirty] = useState(false);
+  const [busy, setBusy] = useState(null);
+  const [rates, setRates] = useState({});
   const [open, setOpen] = useState(() => {
     try { return localStorage.getItem('seq-open') !== '0'; } catch { return true; }
   });
@@ -175,107 +173,105 @@ function Reihenfolge({ data, settings, reload, setMsg }) {
     try { localStorage.setItem('seq-open', o ? '0' : '1'); } catch {}
     return !o;
   });
-  const set = (id, v) => { setPrio((p) => ({ ...p, [id]: v })); setDirty(true); };
-  const [rates, setRates] = useState({});
   useEffect(() => {
     supabase.from('muc_heat_rate').select('*').then(({ data: rows }) => {
       if (rows) setRates(Object.fromEntries(rows.map((x) => [x.room_id, x])));
     });
   }, [data.loadedAt]);
 
-  const save = async () => {
-    setBusy(true);
+  const sorted = data.rooms.filter((r) => r.enabled)
+    .sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99) || a.name.localeCompare(b.name));
+
+  // Tauschen wie in Venediger: priority ist eindeutig → A auf NULL, B auf alte Nummer von A, A auf alte von B.
+  const swap = async (a, b) => {
+    if (a.priority == null || b.priority == null) return;
+    setBusy(a.id);
     setMsg(null);
-    for (const r of rooms) {
-      const { error } = await supabase.from('muc_rooms').update({ heat_rank: prio[r.id] }).eq('id', r.id);
-      if (error) { setMsg({ err: true, t: `${r.name}: ${error.message}` }); setBusy(false); return; }
+    try {
+      const { data: fresh, error: fe } = await supabase.from('muc_rooms').select('id, priority').in('id', [a.id, b.id]);
+      if (fe) throw fe;
+      const pa = fresh.find((x) => x.id === a.id)?.priority;
+      const pb = fresh.find((x) => x.id === b.id)?.priority;
+      if (pa !== a.priority || pb !== b.priority) { setMsg({ err: true, t: 'Reihenfolge wurde inzwischen geändert – neu geladen.' }); return; }
+      const s1 = await supabase.from('muc_rooms').update({ priority: null }).eq('id', a.id);
+      if (s1.error) throw s1.error;
+      const s2 = await supabase.from('muc_rooms').update({ priority: pa }).eq('id', b.id);
+      if (s2.error) { await supabase.from('muc_rooms').update({ priority: pa }).eq('id', a.id); throw s2.error; }
+      const s3 = await supabase.from('muc_rooms').update({ priority: pb }).eq('id', a.id);
+      if (s3.error) throw s3.error;
+      setMsg({ t: `${a.name} jetzt P${pb}, ${b.name} jetzt P${pa}. Der Collector übernimmt es innerhalb einer Minute.` });
+    } catch (e) {
+      setMsg({ err: true, t: `Tausch fehlgeschlagen: ${e.message || e}` });
+    } finally {
+      setBusy(null);
+      await reload();
     }
-    setMsg({ t: 'Prioritäten gespeichert. Der Collector übernimmt sie innerhalb einer Minute.' });
-    setDirty(false);
-    await reload();
-    setBusy(false);
   };
-  const setMaxRooms = async (v) => {
-    setBusy(true);
-    const { error } = await supabase.from('muc_settings').update({ seq_max_rooms: v }).eq('id', 1);
-    setMsg(error ? { err: true, t: error.message } : { t: v === 0 ? 'Alle Räume einer Prio heizen gemeinsam.' : `Höchstens ${v} ${v === 1 ? 'Raum' : 'Räume'} gleichzeitig.` });
+  const saveSetting = async (patch, text) => {
+    setBusy('settings');
+    const { error } = await supabase.from('muc_settings').update(patch).eq('id', 1);
+    setMsg(error ? { err: true, t: error.message } : { t: text });
     await reload();
-    setBusy(false);
-  };
-  const setEnabled = async (v) => {
-    setBusy(true);
-    const { error } = await supabase.from('muc_settings').update({ sequence_enabled: v }).eq('id', 1);
-    setMsg(error ? { err: true, t: error.message } : { t: v ? 'Heizen nach Priorität eingeschaltet.' : 'Heizen nach Priorität ausgeschaltet – alle Räume heizen gleichzeitig.' });
-    await reload();
-    setBusy(false);
+    setBusy(null);
   };
 
   const on = !!settings.sequence_enabled;
+  const maxRooms = settings.seq_max_rooms || 1;
   const live = data.latestByRoom || {};
   const num = (v) => (v == null ? '–' : `${Number(v).toLocaleString('de-DE', { maximumFractionDigits: 1 })} °C`);
   const dur = (min) => (min < 60 ? `${Math.round(min)} min` : `${Math.floor(min / 60)} h ${String(Math.round(min % 60)).padStart(2, '0')} min`);
-  const summary = on ? PRIOS.map((p) => `Prio ${p}: ${rooms.filter((r) => prio[r.id] === p).length}`).join(' · ') : 'Aus – alle Räume gleichzeitig';
   return (
     <section className="card">
       <button type="button" className="collapse-head" onClick={toggle} aria-expanded={open}>
-        <span className="section-title">Raum-Prioritäten <span className="plan-sub">welche Räume zuerst warm werden</span></span>
-        <span className={`collapse-sum ${dirty ? 'warn-text' : ''}`}>{dirty ? 'Nicht gespeicherte Änderungen' : open ? '' : summary}</span>
+        <span className="section-title">Heiz-Reihenfolge <span className="plan-sub">wie in Venediger: P1 zuerst</span></span>
+        <span className="collapse-sum">{open ? '' : on ? `An · ${maxRooms} ${maxRooms === 1 ? 'Raum' : 'Räume'} gleichzeitig` : 'Aus – alle Räume gleichzeitig'}</span>
         <span className={`collapse-chev ${open ? 'open' : ''}`} aria-hidden="true">▶</span>
       </button>
       {open && <>
       <div className="switch-row">
         <div>
-          <div><strong>Nach Priorität heizen</strong></div>
+          <div><strong>Nach Reihenfolge heizen</strong></div>
           <div className="muted small">
-            Prio 1 wird zuerst geheizt, innerhalb einer Prio der Raum, der am schnellsten fertig ist. Wer nicht dran ist, ist in
-            <strong>Warteposition</strong>: Er behält die Temperatur, die er gerade hat (Ventil zu). Ist ein Raum bis auf
-            {' '}{String(settings.seq_on_delta ?? 0.3).replace('.', ',')} °C am Sollwert, kommt der nächste. Fertige Räume halten ihren Sollwert.
+            Die Automatik heizt zuerst P1, dann P2 … Wer nicht dran ist, wartet bei der Temperatur, die er gerade hat (Ventil zu).
+            Ist ein Raum bis auf {String(settings.seq_on_delta ?? 0.3).replace('.', ',')} °C am Sollwert, kommt der nächste; fertige Räume halten ihren Sollwert.
             Jeder Heizlauf wird gemessen – so lernt die App, wie lange jeder Raum für 1 °C braucht.
-            Ändert sich {settings.seq_max_minutes ?? 180} min lang nichts, darf ein Raum mehr heizen.
           </div>
         </div>
-        <button className={`toggle ${on ? 'on' : ''}`} disabled={busy} onClick={() => setEnabled(!on)}>{on ? 'An' : 'Aus'}</button>
+        <button className={`toggle ${on ? 'on' : ''}`} disabled={!!busy} onClick={() => saveSetting({ sequence_enabled: !on }, on ? 'Reihenfolge aus – alle Räume heizen gleichzeitig.' : 'Reihenfolge an.')}>{on ? 'An' : 'Aus'}</button>
       </div>
       <div className="switch-row">
         <div>
           <div><strong>Gleichzeitig heizen</strong></div>
-          <div className="muted small">Wie viele Räume gleichzeitig Wärme bekommen. Mit 1 misst die App jeden Raum für sich am genauesten.</div>
+          <div className="muted small">Wie viele Räume auf einmal Wärme bekommen. Mit 1 misst die App jeden Raum für sich am genauesten.</div>
         </div>
-        <select value={settings.seq_max_rooms ?? 1} disabled={busy} onChange={(e) => setMaxRooms(Number(e.target.value))} aria-label="Räume gleichzeitig">
+        <select value={maxRooms} disabled={!!busy} onChange={(e) => { const v = Number(e.target.value); saveSetting({ seq_max_rooms: v }, `Höchstens ${v} ${v === 1 ? 'Raum' : 'Räume'} gleichzeitig.`); }} aria-label="Räume gleichzeitig">
           {[1, 2, 3, 4].map((k) => <option key={k} value={k}>{k} {k === 1 ? 'Raum' : 'Räume'}</option>)}
-          <option value={0}>ganze Prio</option>
         </select>
       </div>
       {data.status?.sequence_info && <div className="notice small">Jetzt: {data.status.sequence_info}</div>}
-      {PRIOS.map((p) => {
-        const list = rooms.filter((r) => prio[r.id] === p);
-        return (
-          <div key={p} className="prio-group">
-            <div className="eyebrow">Prio {p}{p === 1 ? ' – zuerst' : ''}</div>
-            {list.length === 0 && <div className="muted small">kein Raum</div>}
-            {list.map((r) => {
-              const rr = live[r.id];
-              const rt = rates[r.id];
-              const rate = rt?.rate_c_per_h != null ? Number(rt.rate_c_per_h) : null;
-              return (
-                <div key={r.id} className="seq-row">
-                  <span className="seq-name">
-                    {r.name}
-                    {rr && <span className="muted small"> · {num(rr.temp)} → {num(rr.target)}{rr.mode === 'WARTET' ? ' · wartet' : ''}</span>}
-                    <div className="muted small">
-                      {rate ? <>1 °C in ca. {dur(60 / rate)} · {rt.source === 'gemessen' ? `gemessen (${rt.runs} Läufe)` : 'Startwert aus Verlauf'}</> : 'Aufheizzeit noch unbekannt'}
-                    </div>
-                  </span>
-                  <select value={prio[r.id]} onChange={(e) => set(r.id, Number(e.target.value))} aria-label={`${r.name} Priorität`}>
-                    {PRIOS.map((q) => <option key={q} value={q}>Prio {q}</option>)}
-                  </select>
+      <ol className="seq-list">
+        {sorted.map((r, i) => {
+          const rr = live[r.id];
+          const rt = rates[r.id];
+          const rate = rt?.rate_c_per_h != null ? Number(rt.rate_c_per_h) : null;
+          return (
+            <li key={r.id} className="seq-row">
+              <span className="seq-rank">P{r.priority ?? '–'}</span>
+              <span className="seq-name">
+                {r.name}
+                {rr && <span className="muted small"> · {num(rr.temp)} → {num(rr.target)}{rr.mode === 'WARTET' ? ' · wartet' : ''}</span>}
+                <div className="muted small">
+                  {rate ? <>1 °C in ca. {dur(60 / rate)} · {rt.source === 'gemessen' ? `gemessen (${rt.runs} Läufe)` : 'Startwert aus Verlauf'}</> : 'Aufheizzeit noch unbekannt'}
                 </div>
-              );
-            })}
-          </div>
-        );
-      })}
-      <button className="btn primary" disabled={busy || !dirty} onClick={save}>{busy ? 'Speichert …' : 'Prioritäten speichern'}</button>
+              </span>
+              <span className="seq-btns">
+                <button type="button" className="btn small" disabled={i === 0 || !!busy} onClick={() => swap(r, sorted[i - 1])} aria-label={`${r.name} nach oben`}>▲</button>
+                <button type="button" className="btn small" disabled={i === sorted.length - 1 || !!busy} onClick={() => swap(r, sorted[i + 1])} aria-label={`${r.name} nach unten`}>▼</button>
+              </span>
+            </li>
+          );
+        })}
+      </ol>
       </>}
     </section>
   );
@@ -352,10 +348,10 @@ export default function Settings({ data, reload }) {
         <Heizplan rooms={data.rooms} settings={s} reload={reload} setMsg={setMsg} />
       )}
 
-      {data.rooms.length > 0 && data.rooms[0].heat_rank === undefined ? (
-        <div className="alert">Für die Raum-Prioritäten bitte zuerst <strong>supabase/migration-008-reihenfolge.sql</strong> in Supabase ausführen.</div>
+      {data.rooms.length > 0 && data.rooms[0].priority === undefined ? (
+        <div className="alert">Für die Heiz-Reihenfolge bitte zuerst <strong>supabase/migration-010-prioritaet.sql</strong> in Supabase ausführen.</div>
       ) : (
-        <Reihenfolge key={data.rooms.map((r) => `${r.id}:${r.heat_rank}:${r.enabled}`).join('|')} data={data} settings={data.settings} reload={reload} setMsg={setMsg} />
+        <Reihenfolge data={data} settings={data.settings} reload={reload} setMsg={setMsg} />
       )}
 
       <section className="card">

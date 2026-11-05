@@ -146,7 +146,7 @@ test('Tagesprotokoll: einmal am Tag, nicht nachts', () => {
 // Raum-Prioritäten (0.7/0.8)
 const SQ = { ...S, sequence_enabled: true, seq_max_rooms: 0 };   // alle Räume einer Prio gemeinsam
 const SQ1 = { ...S, sequence_enabled: true, seq_max_rooms: 1 };  // einer nach dem anderen
-const r = (id, rank, extra = {}) => ({ ...kueche, id, name: id, heat_rank: rank, ...extra });
+const r = (id, rank, extra = {}) => ({ ...kueche, id, name: id, priority: rank, ...extra });
 const item = (room, temp, phase = 'TAG', level = 0) => ({ room, temp, t: T(room, phase, level) });
 const byId = (res) => Object.fromEntries(res.items.map((it) => [it.room.id, it.t]));
 
@@ -157,7 +157,7 @@ test('Prio: Prio 1 zuerst, Prio 2 wartet bei aktueller Temperatur', () => {
   assert.equal(t.B.mode, 'WARTET');
   assert.equal(t.B.target, 20);
   assert.equal(res.activeRank, 1);
-  assert.match(res.reason, /Prio 1: es heizt A 20,0 von 21,0/);
+  assert.match(res.reason, /Es heizt A 20,0 von 21,0/);
 });
 
 test('Prio: Prio 1 fertig → Prio 2 dran, Prio 1 hält Sollwert', () => {

@@ -270,3 +270,16 @@ Kontrolle:
 select * from muc_heat_rate order by rate_c_per_h desc;
 select r.name, h.* from muc_heat_runs h join muc_rooms r on r.id = h.room_id order by ended_at desc limit 20;
 ```
+
+---
+
+## 13. Update: Heiz-Reihenfolge wie in Venediger (Collector 0.9.0)
+
+Gleiche Bedienung wie in Venediger: Jeder Raum hat eine **eigene Priorität P1, P2, P3 …** (`muc_rooms.priority`,
+eindeutig – ersetzt `heat_rank`). Einstellungen → **Heiz-Reihenfolge** → mit ▲▼ zwei benachbarte Räume tauschen.
+Die Automatik heizt zuerst P1, dann P2 … – höchstens **Gleichzeitig heizen** Räume auf einmal (Start: 1).
+Alles andere (Warteposition, Messung der Heizläufe, Restzeit) bleibt wie in Abschnitt 11/12.
+
+1. Supabase: `supabase/migration-010-prioritaet.sql` (am 05.11.2026 bereits ausgeführt).
+2. Mini-PC: `git pull` → `C:\nssm\nssm.exe restart HeizungMuenchen` → Log „Collector 0.9.0 startet“.
+   **Wichtig:** Ein älterer Collector (0.7/0.8) kennt die Spalte `priority` nicht und heizt bis zum Update ohne Reihenfolge.

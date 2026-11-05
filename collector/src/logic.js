@@ -219,9 +219,9 @@ export function roomTarget({ room, phase, level = 0, soc = null, now, settings }
 }
 
 /**
- * Raum-Prioritäten (ab 0.7, Lernen ab 0.8) – wie in Venediger.
+ * Raum-Prioritäten (ab 0.7, Lernen ab 0.8, ab 0.9 wie Venediger: P1, P2, P3 … je Raum eindeutig).
  *
- * Jeder Raum hat eine Prio (heat_rank 1–4). Beteiligt sind nur Räume, die gerade mehr als ihren
+ * Jeder Raum hat eine Priorität (priority, P1 = zuerst). Beteiligt sind nur Räume, die gerade mehr als ihren
  * Absenkwert wollen (NORMAL, PV, VOLL). Offen = Sollwert noch nicht erreicht.
  * Geheizt werden höchstens seq_max_rooms offene Räume gleichzeitig (0 = alle Räume der vordersten Prio):
  *   1. niedrigste Prio zuerst,
@@ -250,7 +250,7 @@ export function applyHeatSequence({ items, settings, reached = new Set(), turn =
 
   const onDelta = Number(settings.seq_on_delta ?? 0.3);
   const offDelta = Math.max(onDelta, Number(settings.seq_off_delta ?? 0.8));
-  const rankOf = (room) => (room.heat_rank == null ? 99 : Number(room.heat_rank));
+  const rankOf = (room) => (room.priority == null ? 99 : Number(room.priority));
   const absenkOf = (room) => Number(room.temp_night);
   const prevActive = new Set(turn?.ids || []);
 
@@ -310,7 +310,7 @@ export function applyHeatSequence({ items, settings, reached = new Set(), turn =
     it.t = {
       mode: 'WARTET',
       target: wait,
-      reason: `Prio ${rankOf(it.room)} wartet bei ${fmt1(wait)} °C – es heizt: ${activeItems.map((a) => a.room.name).join(', ')}`,
+      reason: `P${rankOf(it.room)} wartet bei ${fmt1(wait)} °C – es heizt: ${activeItems.map((a) => a.room.name).join(', ')}`,
       wanted: it.t.target,
     };
   }
@@ -318,7 +318,7 @@ export function applyHeatSequence({ items, settings, reached = new Set(), turn =
   return {
     items: out, reached: newReached, turn: newTurn, waits: newWaits, active: [...activeIds], eta,
     activeRank: firstRank, waitingOn: activeItems.map((it) => it.room.name),
-    reason: `Prio ${firstRank}: es heizt ${names}${freed}`,
+    reason: `Es heizt ${names}${freed}`,
   };
 }
 
