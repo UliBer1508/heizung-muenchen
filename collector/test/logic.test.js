@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   DEFAULT_SETTINGS as S, inWindow, parseHm, surplusW, phaseAt, desiredPvLevel, holdPvLevel, houseModeOf,
-  roomTarget, needsWrite, averageEnergy, localMinutes, PV_FULL, shouldCaptureDayContext, applyHeatSequence,
+  roomTarget, needsWrite, averageEnergy, localMinutes, PV_FULL, shouldCaptureDayContext, applyHeatSequence, trackHeatRuns,
 } from '../src/logic.js';
 
 // Zeitpunkt in Berliner Ortszeit (Ende Oktober 2026 = UTC+1)
@@ -143,47 +143,64 @@ test('Tagesprotokoll: einmal am Tag, nicht nachts', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Heiz-Reihenfolge (0.7)
-const SQ = { ...S, sequence_enabled: true };
+// Raum-Prioritäten (0.7/0.8)
+const SQ = { ...S, sequence_enabled: true, seq_max_rooms: 0 };   // alle Räume einer Prio gemeinsam
+const SQ1 = { ...S, sequence_enabled: true, seq_max_rooms: 1 };  // einer nach dem anderen
 const r = (id, rank, extra = {}) => ({ ...kueche, id, name: id, heat_rank: rank, ...extra });
 const item = (room, temp, phase = 'TAG', level = 0) => ({ room, temp, t: T(room, phase, level) });
 const byId = (res) => Object.fromEntries(res.items.map((it) => [it.room.id, it.t]));
 
-test('Reihenfolge: Rang 1 zuerst, Rang 2 wartet mit Absenkwert', () => {
+test('Prio: Prio 1 zuerst, Prio 2 wartet bei aktueller Temperatur', () => {
   const res = applyHeatSequence({ items: [item(r('A', 1), 20), item(r('B', 2), 20)], settings: SQ, now: at('12:00') });
   const t = byId(res);
   assert.equal(t.A.target, 21);
   assert.equal(t.B.mode, 'WARTET');
-  assert.equal(t.B.target, 20);           // Wartewert = aktuelle Temperatur
+  assert.equal(t.B.target, 20);
   assert.equal(res.activeRank, 1);
-  assert.match(res.reason, /Prio 1 ist dran – A 20,0 von 21,0/);
+  assert.match(res.reason, /Prio 1: es heizt A 20,0 von 21,0/);
 });
 
-test('Reihenfolge: Rang 1 erreicht → Rang 2 dran, Rang 1 hält seinen Wert', () => {
-  const res = applyHeatSequence({ items: [item(r('A', 1), 20.8), item(r('B', 2), 20), item(r('C', 3), 20)], settings: SQ, now: at('12:00') });
-  const t = byId(res);
+test('Prio: Prio 1 fertig → Prio 2 dran, Prio 1 hält Sollwert', () => {
+  const t = byId(applyHeatSequence({ items: [item(r('A', 1), 20.8), item(r('B', 2), 20), item(r('C', 3), 20)], settings: SQ, now: at('12:00') }));
   assert.equal(t.A.target, 21);
   assert.equal(t.B.target, 21);
   assert.equal(t.C.mode, 'WARTET');
-  assert.ok(res.reached.has('A'));
 });
 
-test('Reihenfolge: gleicher Rang heizt gemeinsam', () => {
+test('Prio: gleiche Prio und seq_max_rooms 0 → gemeinsam', () => {
   const t = byId(applyHeatSequence({ items: [item(r('A', 1), 20), item(r('B', 1), 20), item(r('C', 2), 20)], settings: SQ, now: at('12:00') }));
   assert.equal(t.A.target, 21);
   assert.equal(t.B.target, 21);
   assert.equal(t.C.mode, 'WARTET');
 });
 
-test('Reihenfolge: Hysterese – erreichter Raum fällt erst unter Soll − 0,8 zurück', () => {
-  const reached = new Set(['A']);
-  const still = byId(applyHeatSequence({ items: [item(r('A', 1), 20.4), item(r('B', 2), 20)], settings: SQ, reached, now: at('12:00') }));
-  assert.equal(still.B.target, 21); // A bei 20,4 gilt weiter als fertig
-  const back = byId(applyHeatSequence({ items: [item(r('A', 1), 20.1), item(r('B', 2), 20)], settings: SQ, reached, now: at('12:00') }));
-  assert.equal(back.B.mode, 'WARTET'); // A unter 20,2 → wieder dran
+test('Prio: seq_max_rooms 1 → einer nach dem anderen, schnellster zuerst, dann bleibt er dran', () => {
+  const items = [item(r('A', 1), 19), item(r('B', 1), 20.5)];
+  const first = applyHeatSequence({ items, settings: SQ1, now: at('12:00') });
+  assert.deepEqual(first.active, ['B']);          // B ist näher am Soll
+  assert.equal(byId(first).A.mode, 'WARTET');
+  // B ist jetzt weiter weg als A – bleibt trotzdem dran, bis fertig
+  const later = applyHeatSequence({ items: [item(r('A', 1), 20.6), item(r('B', 1), 20.6)], settings: SQ1, turn: first.turn, now: at('12:30') });
+  assert.deepEqual(later.active, ['B']);
 });
 
-test('Reihenfolge: Absenk-, manuelle und Räume ohne Messwert blockieren nicht', () => {
+test('Prio: gelernte Aufheizrate bestimmt die Reihenfolge und die Restzeit', () => {
+  const items = [item(r('A', 1), 20), item(r('B', 1), 19.5)];
+  const res = applyHeatSequence({ items, settings: SQ1, rates: { A: 0.1, B: 0.5 }, now: at('12:00') });
+  assert.deepEqual(res.active, ['B']);             // B: 1,5 °C / 0,5 = 3 h; A: 1 °C / 0,1 = 10 h
+  assert.equal(res.eta.B, 180);
+  assert.match(res.reason, /fertig in ca\. 3 h 00 min/);
+});
+
+test('Prio: Hysterese – fertiger Raum fällt erst unter Soll − 0,8 zurück', () => {
+  const reached = new Set(['A']);
+  const still = byId(applyHeatSequence({ items: [item(r('A', 1), 20.4), item(r('B', 2), 20)], settings: SQ, reached, now: at('12:00') }));
+  assert.equal(still.B.target, 21);
+  const back = byId(applyHeatSequence({ items: [item(r('A', 1), 20.1), item(r('B', 2), 20)], settings: SQ, reached, now: at('12:00') }));
+  assert.equal(back.B.mode, 'WARTET');
+});
+
+test('Prio: Absenk-, manuelle und Räume ohne Messwert blockieren nicht', () => {
   const man = r('M', 1, { override_temp: 24, override_until: '2026-10-28T13:00:00+01:00' });
   const t = byId(applyHeatSequence({
     items: [item(man, 18), item(r('S', 1, { heat_day: false, pv_prio: 3 }), 15), item(r('X', 2), null), item(r('B', 3), 20)],
@@ -191,36 +208,60 @@ test('Reihenfolge: Absenk-, manuelle und Räume ohne Messwert blockieren nicht',
   }));
   assert.equal(t.M.mode, 'OVERRIDE');
   assert.equal(t.S.mode, 'ABSENK');
-  assert.equal(t.B.target, 21); // M (manuell), S (Absenk) und X (kein Messwert) halten B nicht auf
+  assert.equal(t.B.target, 21);
 });
 
-test('Reihenfolge: nach seq_max_minutes wird zusätzlich der nächste Rang frei', () => {
+test('Prio: bleibt die Gruppe seq_max_minutes gleich, heizt ein Raum mehr', () => {
   const items = [item(r('A', 1), 19.5), item(r('B', 2), 19.5), item(r('C', 3), 19.5)];
-  const first = applyHeatSequence({ items, settings: SQ, now: at('10:00') });
-  assert.equal(byId(first).B.mode, 'WARTET');
-  const later = applyHeatSequence({ items, settings: SQ, turn: first.turn, now: at('13:05') });
-  assert.equal(byId(later).B.target, 21);
+  const first = applyHeatSequence({ items, settings: SQ1, now: at('10:00') });
+  assert.deepEqual(first.active, ['A']);
+  const later = applyHeatSequence({ items, settings: SQ1, turn: first.turn, now: at('13:05') });
+  assert.deepEqual(later.active.sort(), ['A', 'B']);
   assert.equal(byId(later).C.mode, 'WARTET');
-  assert.match(later.reason, /auch Prio 2 freigegeben/);
+  assert.match(later.reason, /ein Raum zusätzlich freigegeben/);
 });
 
-test('Reihenfolge aus: alles wie bisher', () => {
+test('Prio: Wartewert bleibt eingefroren, bis der Raum dran ist', () => {
+  const first = applyHeatSequence({ items: [item(r('A', 1), 18), item(r('B', 2), 18.27)], settings: SQ, now: at('12:00') });
+  assert.equal(byId(first).B.target, 18.2);
+  const cooler = applyHeatSequence({ items: [item(r('A', 1), 18.5), item(r('B', 2), 17.6)], settings: SQ, waits: first.waits, now: at('12:30') });
+  assert.equal(byId(cooler).B.target, 18.2);
+  const turn = applyHeatSequence({ items: [item(r('A', 1), 20.9), item(r('B', 2), 17.6)], settings: SQ, waits: cooler.waits, now: at('14:00') });
+  assert.equal(byId(turn).B.target, 21);
+  assert.equal(turn.waits.B, undefined);
+});
+
+test('Prio aus: alles wie bisher', () => {
   const t = byId(applyHeatSequence({ items: [item(r('A', 1), 15), item(r('B', 2), 15)], settings: S, now: at('12:00') }));
   assert.equal(t.B.target, 21);
 });
 
-test('Reihenfolge mit PV: PV-Wert zählt als Soll', () => {
+test('Prio mit PV: PV-Wert zählt als Soll', () => {
   const t = byId(applyHeatSequence({ items: [item(r('A', 1), 21, 'TAG', 1), item(r('B', 2), 21, 'TAG', 1)], settings: SQ, now: at('12:00') }));
   assert.equal(t.A.target, 23);
   assert.equal(t.B.mode, 'WARTET');
 });
 
-test('Reihenfolge: Wartewert bleibt eingefroren, bis der Raum dran ist', () => {
-  const first = applyHeatSequence({ items: [item(r('A', 1), 18), item(r('B', 2), 18.27)], settings: SQ, now: at('12:00') });
-  assert.equal(byId(first).B.target, 18.2);
-  const cooler = applyHeatSequence({ items: [item(r('A', 1), 18.5), item(r('B', 2), 17.6)], settings: SQ, waits: first.waits, now: at('12:30') });
-  assert.equal(byId(cooler).B.target, 18.2); // hält die Temperatur vom Wartebeginn
-  const turn = applyHeatSequence({ items: [item(r('A', 1), 20.9), item(r('B', 2), 17.6)], settings: SQ, waits: cooler.waits, now: at('14:00') });
-  assert.equal(byId(turn).B.target, 21);     // jetzt dran → Sollwert
-  assert.equal(turn.waits.B, undefined);
+test('Aufheiz-Messung: Lauf beginnt beim Heizen und endet, wenn der Raum fertig ist', () => {
+  const A = r('A', 1);
+  let st = trackHeatRuns({}, { now: at('10:00'), items: [item(A, 19.0)], active: new Set(['A']), reached: new Set(), heatW: 2000, outdoorC: 5 });
+  assert.equal(st.finished.length, 0);
+  st = trackHeatRuns(st.runs, { now: at('11:00'), items: [item(A, 19.6)], active: new Set(['A']), reached: new Set(), heatW: 2400, outdoorC: 6 });
+  st = trackHeatRuns(st.runs, { now: at('12:30'), items: [item(A, 20.8)], active: new Set(), reached: new Set(['A']), heatW: 0 });
+  assert.equal(st.finished.length, 1);
+  const f = st.finished[0];
+  assert.equal(f.minutes, 150);
+  assert.equal(f.temp_start, 19);
+  assert.equal(f.temp_end, 20.8);
+  assert.equal(f.reached, true);
+  assert.equal(f.heat_w, 2200);
+  assert.equal(f.rooms_heating, 1);
+  assert.deepEqual(st.runs, {});
+});
+
+test('Aufheiz-Messung: zu kurze Läufe (< 30 min) werden verworfen', () => {
+  const A = r('A', 1);
+  let st = trackHeatRuns({}, { now: at('10:00'), items: [item(A, 19)], active: new Set(['A']), reached: new Set() });
+  st = trackHeatRuns(st.runs, { now: at('10:20'), items: [item(A, 19.1)], active: new Set(), reached: new Set() });
+  assert.equal(st.finished.length, 0);
 });

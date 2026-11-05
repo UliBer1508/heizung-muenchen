@@ -11,10 +11,10 @@ import { readOutdoorTemp, readEvccChargePower } from './extras.js';
 import { readFemsForecast } from './fems-rest.js';
 import {
   DEFAULT_SETTINGS, averageEnergy, phaseAt, desiredPvLevel, holdPvLevel, houseModeOf, roomTarget, needsWrite, surplusW,
-  shouldCaptureDayContext, applyHeatSequence,
+  shouldCaptureDayContext, applyHeatSequence, trackHeatRuns,
 } from './logic.js';
 
-const VERSION = '0.7.1';
+const VERSION = '0.8.0';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const stateDir = process.env.STATE_DIR || path.join(here, '..', 'state');
 const cacheFile = path.join(stateDir, 'cache.json');
@@ -67,6 +67,9 @@ let missingColsWarned = false;
 let lastDailyStore = null; // Datum (Berlin), an dem die Tageswerte zuletzt gespeichert wurden
 let lastContextDay = null; // Datum (Berlin), an dem das Tagesprotokoll zuletzt erfasst wurde
 let contextWarned = false;
+let lastCarW = null;   // Auto-Ladeleistung vom letzten Lauf (für den geschätzten Heizstrom)
+let heatRates = {};    // gelernte Aufheizrate je Raum (°C pro Stunde) aus muc_heat_rate
+let ratesWarned = false;
 
 function loadCache() {
   try {
@@ -91,6 +94,13 @@ async function loadConfig() {
     const rooms = await db.select('muc_rooms', 'enabled=eq.true&order=sort.asc');
     cache.settings = settings || cache.settings;
     cache.rooms = rooms || cache.rooms;
+    try {
+      const rates = await db.select('muc_heat_rate', 'select=room_id,rate_c_per_h');
+      heatRates = Object.fromEntries((rates || []).map((r) => [r.room_id, Number(r.rate_c_per_h)]));
+    } catch (e) {
+      if (!ratesWarned) log('Aufheizraten nicht ladbar (migration-009 fehlt?):', e.message);
+      ratesWarned = true;
+    }
   } catch (e) {
     log('Konfiguration aus Supabase nicht ladbar, nutze Cache:', e.message);
   }
@@ -177,17 +187,31 @@ async function tick() {
   const seq = applyHeatSequence({
     items, settings, now,
     reached: new Set(cache.seq?.reached || []),
-    turn: cache.seq?.turn ? { rank: cache.seq.turn.rank, since: new Date(cache.seq.turn.since) } : null,
+    turn: cache.seq?.turn?.since ? { ...cache.seq.turn, since: new Date(cache.seq.turn.since) } : null,
     waits: cache.seq?.waits || {},
+    rates: heatRates,
   });
-  const seqKey = `${seq.activeRank ?? '-'}|${seq.waitingOn.join(',')}`;
+
+  // Aufheiz-Messung: wie schnell wird ein Raum warm, während er heizen darf?
+  const heatW = energy?.consumptionW != null ? Math.max(0, energy.consumptionW - (lastCarW || 0) - 400) : null;
+  const tracked = trackHeatRuns(cache.seq?.runs || {}, {
+    now, items: seq.items, active: new Set(seq.active), reached: seq.reached, heatW, outdoorC: outdoor.temp,
+  });
+  if (tracked.finished.length) {
+    for (const f of tracked.finished) {
+      const name = cache.rooms.find((r) => r.id === f.room_id)?.name || f.room_id;
+      log(`Aufheiz-Messung ${name}: ${f.temp_start} → ${f.temp_end} °C in ${f.minutes} min (${f.rooms_heating} Räume gleichzeitig)`);
+    }
+    await safeDb('heat_runs', () => db.insert('muc_heat_runs', tracked.finished));
+  }
+  const seqKey = `${seq.activeRank ?? '-'}|${[...seq.active].sort().join(',')}`;
   if (seq.reason && cache.seq?.key !== seqKey) {
     log(seq.reason);
     await safeDb('decision', () => db.insert('muc_decisions', [{
       kind: 'sequence', mode: house.mode, reason: seq.reason, dry_run: dryRun,
     }]));
   }
-  cache.seq = { reached: [...seq.reached], turn: seq.turn, waits: seq.waits, key: seqKey, reason: seq.reason };
+  cache.seq = { reached: [...seq.reached], turn: seq.turn, waits: seq.waits, runs: tracked.runs, key: seqKey, reason: seq.reason };
 
   // … und schreiben.
   for (const { room, state, t } of seq.items) {
@@ -269,6 +293,7 @@ async function tick() {
   if (cfg.evccUrl) {
     try {
       carW = await readEvccChargePower({ url: cfg.evccUrl });
+      lastCarW = carW;
       evccWarned = false;
     } catch (e) {
       if (!evccWarned) log('evcc nicht erreichbar (Auto-Ladeleistung fehlt in der Analyse):', e.message);

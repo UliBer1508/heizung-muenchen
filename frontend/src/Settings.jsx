@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase } from './supabase.js';
 
 const HOUSE_FIELDS = [
@@ -176,6 +176,12 @@ function Reihenfolge({ data, settings, reload, setMsg }) {
     return !o;
   });
   const set = (id, v) => { setPrio((p) => ({ ...p, [id]: v })); setDirty(true); };
+  const [rates, setRates] = useState({});
+  useEffect(() => {
+    supabase.from('muc_heat_rate').select('*').then(({ data: rows }) => {
+      if (rows) setRates(Object.fromEntries(rows.map((x) => [x.room_id, x])));
+    });
+  }, [data.loadedAt]);
 
   const save = async () => {
     setBusy(true);
@@ -186,6 +192,13 @@ function Reihenfolge({ data, settings, reload, setMsg }) {
     }
     setMsg({ t: 'Prioritäten gespeichert. Der Collector übernimmt sie innerhalb einer Minute.' });
     setDirty(false);
+    await reload();
+    setBusy(false);
+  };
+  const setMaxRooms = async (v) => {
+    setBusy(true);
+    const { error } = await supabase.from('muc_settings').update({ seq_max_rooms: v }).eq('id', 1);
+    setMsg(error ? { err: true, t: error.message } : { t: v === 0 ? 'Alle Räume einer Prio heizen gemeinsam.' : `Höchstens ${v} ${v === 1 ? 'Raum' : 'Räume'} gleichzeitig.` });
     await reload();
     setBusy(false);
   };
@@ -200,6 +213,7 @@ function Reihenfolge({ data, settings, reload, setMsg }) {
   const on = !!settings.sequence_enabled;
   const live = data.latestByRoom || {};
   const num = (v) => (v == null ? '–' : `${Number(v).toLocaleString('de-DE', { maximumFractionDigits: 1 })} °C`);
+  const dur = (min) => (min < 60 ? `${Math.round(min)} min` : `${Math.floor(min / 60)} h ${String(Math.round(min % 60)).padStart(2, '0')} min`);
   const summary = on ? PRIOS.map((p) => `Prio ${p}: ${rooms.filter((r) => prio[r.id] === p).length}`).join(' · ') : 'Aus – alle Räume gleichzeitig';
   return (
     <section className="card">
@@ -213,13 +227,24 @@ function Reihenfolge({ data, settings, reload, setMsg }) {
         <div>
           <div><strong>Nach Priorität heizen</strong></div>
           <div className="muted small">
-            Prio 1 wird zuerst geheizt. Räume mit Prio 2, 3, 4 sind solange in <strong>Warteposition</strong>: Sie behalten die Temperatur,
-            die sie gerade haben (Ventil zu). Haben alle Räume einer Prio ihren Sollwert bis auf {String(settings.seq_on_delta ?? 0.3).replace('.', ',')} °C
-            erreicht, kommt die nächste Prio. Fertige Räume halten ihren Sollwert. Kommt eine Prio {settings.seq_max_minutes ?? 180} min
-            lang nicht ans Ziel, darf zusätzlich die nächste.
+            Prio 1 wird zuerst geheizt, innerhalb einer Prio der Raum, der am schnellsten fertig ist. Wer nicht dran ist, ist in
+            <strong>Warteposition</strong>: Er behält die Temperatur, die er gerade hat (Ventil zu). Ist ein Raum bis auf
+            {' '}{String(settings.seq_on_delta ?? 0.3).replace('.', ',')} °C am Sollwert, kommt der nächste. Fertige Räume halten ihren Sollwert.
+            Jeder Heizlauf wird gemessen – so lernt die App, wie lange jeder Raum für 1 °C braucht.
+            Ändert sich {settings.seq_max_minutes ?? 180} min lang nichts, darf ein Raum mehr heizen.
           </div>
         </div>
         <button className={`toggle ${on ? 'on' : ''}`} disabled={busy} onClick={() => setEnabled(!on)}>{on ? 'An' : 'Aus'}</button>
+      </div>
+      <div className="switch-row">
+        <div>
+          <div><strong>Gleichzeitig heizen</strong></div>
+          <div className="muted small">Wie viele Räume gleichzeitig Wärme bekommen. Mit 1 misst die App jeden Raum für sich am genauesten.</div>
+        </div>
+        <select value={settings.seq_max_rooms ?? 1} disabled={busy} onChange={(e) => setMaxRooms(Number(e.target.value))} aria-label="Räume gleichzeitig">
+          {[1, 2, 3, 4].map((k) => <option key={k} value={k}>{k} {k === 1 ? 'Raum' : 'Räume'}</option>)}
+          <option value={0}>ganze Prio</option>
+        </select>
       </div>
       {data.status?.sequence_info && <div className="notice small">Jetzt: {data.status.sequence_info}</div>}
       {PRIOS.map((p) => {
@@ -230,11 +255,16 @@ function Reihenfolge({ data, settings, reload, setMsg }) {
             {list.length === 0 && <div className="muted small">kein Raum</div>}
             {list.map((r) => {
               const rr = live[r.id];
+              const rt = rates[r.id];
+              const rate = rt?.rate_c_per_h != null ? Number(rt.rate_c_per_h) : null;
               return (
                 <div key={r.id} className="seq-row">
                   <span className="seq-name">
                     {r.name}
                     {rr && <span className="muted small"> · {num(rr.temp)} → {num(rr.target)}{rr.mode === 'WARTET' ? ' · wartet' : ''}</span>}
+                    <div className="muted small">
+                      {rate ? <>1 °C in ca. {dur(60 / rate)} · {rt.source === 'gemessen' ? `gemessen (${rt.runs} Läufe)` : 'Startwert aus Verlauf'}</> : 'Aufheizzeit noch unbekannt'}
+                    </div>
                   </span>
                   <select value={prio[r.id]} onChange={(e) => set(r.id, Number(e.target.value))} aria-label={`${r.name} Priorität`}>
                     {PRIOS.map((q) => <option key={q} value={q}>Prio {q}</option>)}

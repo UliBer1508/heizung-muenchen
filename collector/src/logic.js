@@ -219,38 +219,40 @@ export function roomTarget({ room, phase, level = 0, soc = null, now, settings }
 }
 
 /**
- * Heiz-Reihenfolge (ab 0.7) – wie in Venediger: Räume werden nacheinander geheizt.
+ * Raum-Prioritäten (ab 0.7, Lernen ab 0.8) – wie in Venediger.
  *
- * Jeder Raum hat einen Rang (heat_rank, 1 = zuerst; gleicher Rang = gemeinsam).
- * Beteiligt sind nur Räume, die gerade mehr als ihren Absenkwert wollen (NORMAL, PV, VOLL).
- * Der vorderste Rang mit einem Raum, der seinen Sollwert noch nicht erreicht hat, ist „dran“.
- * Räume mit späterem Rang sind in Warteposition: Sie bekommen die Temperatur, die sie beim Beginn
- * des Wartens hatten (Wartewert). So bleibt ihr Ventil zu und das Heizwasser geht in die Räume, die
- * dran sind. Fertige Räume halten ihren Sollwert.
+ * Jeder Raum hat eine Prio (heat_rank 1–4). Beteiligt sind nur Räume, die gerade mehr als ihren
+ * Absenkwert wollen (NORMAL, PV, VOLL). Offen = Sollwert noch nicht erreicht.
+ * Geheizt werden höchstens seq_max_rooms offene Räume gleichzeitig (0 = alle Räume der vordersten Prio):
+ *   1. niedrigste Prio zuerst,
+ *   2. Räume, die schon heizen, bleiben dran, bis sie fertig sind (kein Hin-und-her),
+ *   3. dann der Raum, der am schnellsten fertig ist (gelernte °C/h, sonst kleinster Abstand zum Soll).
+ * Alle anderen offenen Räume sind in Warteposition: Sie bekommen die Temperatur, die sie beim Beginn
+ * des Wartens hatten (Ventil zu). Fertige Räume halten ihren Sollwert.
  *
- * „Erreicht“: Ist ≥ Soll − seq_on_delta. Mit Hysterese: Ein erreichter Raum gilt erst wieder als
- * offen, wenn er unter Soll − seq_off_delta fällt. Ohne Messwert blockiert ein Raum die anderen nicht.
- *
- * Schutz gegen Hängenbleiben: Kommt ein Rang nach seq_max_minutes nicht ans Ziel (Ventil defekt,
- * Wärmepumpe aus …), wird zusätzlich der nächste Rang freigegeben – je weitere seq_max_minutes einer mehr.
+ * „Fertig“: Ist ≥ Soll − seq_on_delta; wieder offen erst unter Soll − seq_off_delta.
+ * Ohne Messwert blockiert ein Raum die anderen nicht.
+ * Schutz: Ändert sich die Gruppe der heizenden Räume seq_max_minutes lang nicht, darf ein Raum mehr heizen.
  *
  * @param items    [{ room, temp, t }] – t ist das Ergebnis von roomTarget()
- * @param reached  Set der Raum-IDs, die beim letzten Lauf als erreicht galten
- * @param turn     { rank, since } – welcher Rang seit wann dran ist (vom letzten Lauf)
+ * @param reached  Set der Raum-IDs, die beim letzten Lauf fertig waren
+ * @param turn     { key, since } – welche Räume seit wann heizen (vom letzten Lauf)
  * @param waits    { raumId: Wartewert } vom letzten Lauf
- * @returns { items (mit angepasstem t), reached, turn, waits, activeRank, waitingOn, reason }
+ * @param rates    { raumId: °C pro Stunde } gelernt (muc_heat_rate)
+ * @returns { items, reached, turn, waits, active: [ids], eta: {id: Minuten}, activeRank, waitingOn, reason }
  */
-export function applyHeatSequence({ items, settings, reached = new Set(), turn = null, waits = {}, now = new Date() }) {
+export function applyHeatSequence({ items, settings, reached = new Set(), turn = null, waits = {}, rates = {}, now = new Date() }) {
   const out = items.map((it) => ({ ...it }));
   const newReached = new Set();
   const newWaits = {};
-  if (!settings.sequence_enabled) {
-    return { items: out, reached: newReached, turn: null, waits: newWaits, activeRank: null, waitingOn: [], reason: null };
-  }
+  const empty = (reason = null) => ({ items: out, reached: newReached, turn: null, waits: newWaits, active: [], eta: {}, activeRank: null, waitingOn: [], reason });
+  if (!settings.sequence_enabled) return empty();
+
   const onDelta = Number(settings.seq_on_delta ?? 0.3);
   const offDelta = Math.max(onDelta, Number(settings.seq_off_delta ?? 0.8));
-  const rankOf = (room) => (room.heat_rank == null ? 999 : Number(room.heat_rank));
+  const rankOf = (room) => (room.heat_rank == null ? 99 : Number(room.heat_rank));
   const absenkOf = (room) => Number(room.temp_night);
+  const prevActive = new Set(turn?.ids || []);
 
   const part = out.filter(({ room, t }) => t.mode !== MODES.OVERRIDE && t.mode !== 'ABSENK'
     && Number(t.target) > absenkOf(room) + 0.05);
@@ -262,41 +264,117 @@ export function applyHeatSequence({ items, settings, reached = new Set(), turn =
     if (it.done) newReached.add(room.id);
   }
   const open = part.filter((it) => !it.done);
-  if (!open.length) {
-    return { items: out, reached: newReached, turn: null, waits: newWaits, activeRank: null, waitingOn: [], reason: part.length ? 'alle Räume haben ihren Sollwert' : null };
+  if (!open.length) return empty(part.length ? 'alle Räume haben ihren Sollwert' : null);
+
+  // Restzeit je offenem Raum (Minuten), wenn eine Aufheizrate gelernt ist
+  const eta = {};
+  for (const it of open) {
+    const rate = Number(rates[it.room.id]);
+    if (rate > 0.01) eta[it.room.id] = Math.round(((it.t.target - Number(it.temp)) / rate) * 60);
   }
-  const openRanks = [...new Set(open.map((it) => rankOf(it.room)))].sort((a, b) => a - b);
-  const first = openRanks[0];
-  const newTurn = turn && turn.rank === first && turn.since ? { rank: first, since: turn.since } : { rank: first, since: now };
+  const deficit = (it) => it.t.target - Number(it.temp);
+  open.sort((x, y) => rankOf(x.room) - rankOf(y.room)
+    || (prevActive.has(y.room.id) - prevActive.has(x.room.id))
+    || ((eta[x.room.id] ?? 1e6) - (eta[y.room.id] ?? 1e6))
+    || (deficit(x) - deficit(y))
+    || ((x.room.sort ?? 0) - (y.room.sort ?? 0)));
+
+  const firstRank = rankOf(open[0].room);
+  const maxRooms = Number(settings.seq_max_rooms ?? 1);
+  let n = maxRooms > 0 ? maxRooms : open.filter((it) => rankOf(it.room) === firstRank).length;
+
+  // Schutz gegen Hängenbleiben: gleiche Gruppe zu lange → ein Raum mehr je seq_max_minutes
+  const pick = (k) => open.slice(0, Math.min(k, open.length)).map((it) => it.room.id).sort();
+  const key = pick(n).join(',');
+  const newTurn = turn && turn.key === key && turn.since ? { key, since: turn.since } : { key, since: now };
   const maxMin = Number(settings.seq_max_minutes ?? 180);
   const waited = (now - new Date(newTurn.since)) / 60000;
   const extra = maxMin > 0 ? Math.floor(waited / maxMin) : 0;
-  const activeRank = openRanks[Math.min(extra, openRanks.length - 1)];
-  const waitingOn = open.filter((it) => rankOf(it.room) === first);
-  const names = waitingOn.map((it) => `${it.room.name} ${fmt1(it.temp)} von ${fmt1(it.t.target)} °C`).join(', ');
-  for (const it of part) {
-    if (rankOf(it.room) <= activeRank) continue;
+  n = Math.min(open.length, n + extra);
+  const activeIds = new Set(open.slice(0, n).map((it) => it.room.id));
+  newTurn.ids = [...activeIds];
+
+  const activeItems = open.filter((it) => activeIds.has(it.room.id));
+  const until = (id) => (eta[id] != null ? `, fertig in ca. ${fmtDur(eta[id])}` : '');
+  const names = activeItems.map((it) => `${it.room.name} ${fmt1(it.temp)} von ${fmt1(it.t.target)} °C${until(it.room.id)}`).join(' · ');
+
+  for (const it of open) {
+    if (activeIds.has(it.room.id)) continue;
     const lo = Math.max(HARD_MIN, it.room.min_temp ?? HARD_MIN);
     const hi = Math.min(HARD_MAX, it.room.max_temp ?? HARD_MAX);
     // Wartewert = Temperatur beim Beginn des Wartens (abgerundet auf 0,1 °C), nie über dem Sollwert.
-    // Ohne Messwert: Absenkwert.
     const id = it.room.id;
-    const hasTemp = it.temp != null && !Number.isNaN(Number(it.temp));
-    let wait = waits[id] != null ? Number(waits[id]) : hasTemp ? Math.floor(Number(it.temp) * 10) / 10 : absenkOf(it.room);
+    let wait = waits[id] != null ? Number(waits[id]) : Math.floor(Number(it.temp) * 10) / 10;
     wait = clamp(Math.min(wait, Number(it.t.target)), lo, hi);
     newWaits[id] = wait;
     it.t = {
       mode: 'WARTET',
       target: wait,
-      reason: `Prio ${rankOf(it.room)} wartet bei ${fmt1(wait)} °C, zuerst ${names}`,
+      reason: `Prio ${rankOf(it.room)} wartet bei ${fmt1(wait)} °C – es heizt: ${activeItems.map((a) => a.room.name).join(', ')}`,
       wanted: it.t.target,
     };
   }
-  const freed = activeRank !== first ? ` · nach ${Math.round(waited)} min auch Prio ${activeRank} freigegeben` : '';
+  const freed = extra > 0 ? ` · nach ${Math.round(waited)} min ${extra === 1 ? 'ein Raum' : `${extra} Räume`} zusätzlich freigegeben` : '';
   return {
-    items: out, reached: newReached, turn: newTurn, waits: newWaits, activeRank, waitingOn: waitingOn.map((it) => it.room.name),
-    reason: `Prio ${first} ist dran – ${names}${freed}`,
+    items: out, reached: newReached, turn: newTurn, waits: newWaits, active: [...activeIds], eta,
+    activeRank: firstRank, waitingOn: activeItems.map((it) => it.room.name),
+    reason: `Prio ${firstRank}: es heizt ${names}${freed}`,
   };
+}
+
+const fmtDur = (min) => (min < 60 ? `${Math.max(1, Math.round(min))} min` : `${Math.floor(min / 60)} h ${String(Math.round(min % 60)).padStart(2, '0')} min`);
+
+/**
+ * Aufheiz-Messung (ab 0.8): Läuft für einen Raum, solange er heizen darf und offen ist.
+ * Liefert für jeden beendeten Lauf eine Zeile für muc_heat_runs.
+ *
+ * @param runs   { raumId: { started, tempStart, target, ticks, activeSum, heatSum, heatN, outSum, outN } }
+ * @param tick   { now, items, active: Set(ids), reached: Set(ids), heatW, outdoorC }
+ * @returns { runs (neu), finished: [Zeilen] }
+ */
+export function trackHeatRuns(runs, { now, items, active, reached, heatW = null, outdoorC = null }) {
+  const next = {};
+  const finished = [];
+  const byId = Object.fromEntries(items.map((it) => [it.room.id, it]));
+  const nActive = active.size;
+  const close = (id, run, reachedTarget) => {
+    const it = byId[id];
+    const tempEnd = it?.temp != null ? Number(it.temp) : run.tempLast;
+    const minutes = (now - new Date(run.started)) / 60000;
+    if (minutes < 30 || tempEnd == null || run.tempStart == null) return;
+    finished.push({
+      room_id: id,
+      started_at: new Date(run.started).toISOString(),
+      ended_at: now.toISOString(),
+      minutes: Math.round(minutes),
+      temp_start: run.tempStart,
+      temp_end: tempEnd,
+      target: run.target,
+      reached: reachedTarget,
+      rooms_heating: Math.round((run.activeSum / run.ticks) * 10) / 10,
+      heat_w: run.heatN ? Math.round(run.heatSum / run.heatN) : null,
+      outdoor_c: run.outN ? Math.round((run.outSum / run.outN) * 10) / 10 : null,
+    });
+  };
+  for (const [id, run] of Object.entries(runs || {})) {
+    const it = byId[id];
+    if (!active.has(id) || !it) close(id, run, reached.has(id));
+  }
+  for (const id of active) {
+    const it = byId[id];
+    if (!it) continue;
+    const temp = it.temp != null ? Number(it.temp) : null;
+    const prev = runs?.[id];
+    const run = prev || { started: now, tempStart: temp, target: Number(it.t.target), ticks: 0, activeSum: 0, heatSum: 0, heatN: 0, outSum: 0, outN: 0 };
+    run.ticks += 1;
+    run.activeSum += nActive;
+    if (heatW != null) { run.heatSum += heatW; run.heatN += 1; }
+    if (outdoorC != null) { run.outSum += Number(outdoorC); run.outN += 1; }
+    if (temp != null) run.tempLast = temp;
+    run.target = Number(it.t.target);
+    next[id] = run;
+  }
+  return { runs: next, finished };
 }
 
 const fmt1 = (v) => (v == null ? '?' : Number(v).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 }));
@@ -358,5 +436,6 @@ export const DEFAULT_SETTINGS = Object.freeze({
   sequence_enabled: false, // Heiz-Reihenfolge (Migration 008 schaltet sie ein)
   seq_on_delta: 0.3,    // Raum gilt als fertig ab Soll − 0,3 °C
   seq_off_delta: 0.8,   // … und wieder als offen unter Soll − 0,8 °C
-  seq_max_minutes: 180, // kommt ein Rang so lange nicht ans Ziel, darf zusätzlich der nächste
+  seq_max_minutes: 180, // ändert sich die heizende Gruppe so lange nicht, darf ein Raum mehr heizen
+  seq_max_rooms: 1,     // so viele Räume heizen gleichzeitig (0 = alle der vordersten Prio)
 });

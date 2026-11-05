@@ -248,3 +248,25 @@ Nachts bleibt alles auf Absenk, manuelle Werte (auch Alexa) haben Vorrang.
    Wartende Räume zeigt die Übersicht als **Wartet**, Wechsel stehen im Protokoll unter **Priorität**.
 
 Feineinstellung in Supabase (`muc_settings`): `seq_on_delta`, `seq_off_delta`, `seq_max_minutes` (0 = nie freigeben).
+
+---
+
+## 12. Update: Aufheiz-Modell, einer nach dem anderen (Collector 0.8.0)
+
+- **Gleichzeitig heizen** (Einstellungen → Raum-Prioritäten): Start mit **1 Raum** – einer nach dem anderen.
+  Innerhalb einer Prio kommt der Raum zuerst, der am schnellsten fertig ist. Ein Raum, der heizt, bleibt dran, bis er fertig ist.
+  Später auf 2–3 Räume erhöhen oder „ganze Prio“.
+- **Messung:** Jeder Heizlauf (Raum darf heizen → fertig oder wartet) landet in `muc_heat_runs`
+  (Start-/Endtemperatur, Minuten, wie viele Räume gleichzeitig, Heizstrom, außen).
+  `muc_heat_rate` liefert je Raum °C pro Stunde aus den letzten 10 Läufen; bis 2 Läufe gemessen sind, gilt der
+  Startwert aus dem Verlauf (`muc_rooms.heat_rate_seed`, Ende Okt./Anfang Nov. 2026, damals alle Ventile offen).
+- Die App zeigt je Raum „1 °C in ca. …“, die Übersicht „es heizt Küche 21,2 von 22 °C, fertig in ca. 3 h 10 min“.
+
+1. Supabase: `supabase/migration-009-aufheizen.sql` (am 05.11.2026 bereits ausgeführt).
+2. Mini-PC: `git pull` → `C:\nssm\nssm.exe restart HeizungMuenchen` → Log „Collector 0.8.0 startet“.
+
+Kontrolle:
+```sql
+select * from muc_heat_rate order by rate_c_per_h desc;
+select r.name, h.* from muc_heat_runs h join muc_rooms r on r.id = h.room_id order by ended_at desc limit 20;
+```
