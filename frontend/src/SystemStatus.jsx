@@ -6,6 +6,7 @@
 //   - system_cloud_status()  Fronius-Daten, Thermostate Venediger, Cron, Function-Aufrufe
 //   - service_commands       Start/Stop/Neustart – nur Admins (system_status_admins), Fernzugriff nur Start
 import { useCallback, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { supabase } from './supabase.js';
 
 const HOST_STALE_MS = 10 * 60 * 1000;
@@ -82,7 +83,9 @@ export default function SystemStatusButton() {
         <ServerIcon />
         {n === 0 ? <span className="dot ok" /> : <span>{n}</span>}
       </button>
-      {open && <SystemStatusDialog st={st} onClose={() => setOpen(false)} />}
+      {/* Portal an <body>: die Kopfleiste hat backdrop-filter – darin wäre position:fixed
+          an die Kopfleiste gebunden und das Fenster läge hinter der Übersicht */}
+      {open && createPortal(<SystemStatusDialog st={st} onClose={() => setOpen(false)} />, document.body)}
     </>
   );
 }
