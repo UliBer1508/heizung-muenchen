@@ -219,9 +219,9 @@ export function roomTarget({ room, phase, level = 0, soc = null, now, settings }
 }
 
 /**
- * Raum-Prioritäten (ab 0.7, Lernen ab 0.8, ab 0.9 wie Venediger: P1, P2, P3 … je Raum eindeutig).
+ * Raum-Prioritäten (ab 0.7, Lernen ab 0.8, Prio-Gruppen 1–4 ab 0.10).
  *
- * Jeder Raum hat eine Priorität (priority, P1 = zuerst). Beteiligt sind nur Räume, die gerade mehr als ihren
+ * Jeder Raum hat eine Prio (priority 1–4, mehrere Räume je Prio; 1 = zuerst). Beteiligt sind nur Räume, die gerade mehr als ihren
  * Absenkwert wollen (NORMAL, PV, VOLL). Offen = Sollwert noch nicht erreicht.
  * Geheizt werden höchstens seq_max_rooms offene Räume gleichzeitig (0 = alle Räume der vordersten Prio):
  *   1. niedrigste Prio zuerst,
@@ -310,7 +310,7 @@ export function applyHeatSequence({ items, settings, reached = new Set(), turn =
     it.t = {
       mode: 'WARTET',
       target: wait,
-      reason: `P${rankOf(it.room)} wartet bei ${fmt1(wait)} °C – es heizt: ${activeItems.map((a) => a.room.name).join(', ')}`,
+      reason: `Prio ${rankOf(it.room)} wartet bei ${fmt1(wait)} °C – es heizt: ${activeItems.map((a) => a.room.name).join(', ')}`,
       wanted: it.t.target,
     };
   }
@@ -318,7 +318,7 @@ export function applyHeatSequence({ items, settings, reached = new Set(), turn =
   return {
     items: out, reached: newReached, turn: newTurn, waits: newWaits, active: [...activeIds], eta,
     activeRank: firstRank, waitingOn: activeItems.map((it) => it.room.name),
-    reason: `Es heizt ${names}${freed}`,
+    reason: `Prio ${firstRank}: es heizt ${names}${freed}`,
   };
 }
 

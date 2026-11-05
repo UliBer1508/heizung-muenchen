@@ -283,3 +283,18 @@ Alles andere (Warteposition, Messung der Heizläufe, Restzeit) bleibt wie in Abs
 1. Supabase: `supabase/migration-010-prioritaet.sql` (am 05.11.2026 bereits ausgeführt).
 2. Mini-PC: `git pull` → `C:\nssm\nssm.exe restart HeizungMuenchen` → Log „Collector 0.9.0 startet“.
    **Wichtig:** Ein älterer Collector (0.7/0.8) kennt die Spalte `priority` nicht und heizt bis zum Update ohne Reihenfolge.
+
+---
+
+## 14. Update: Prio-Gruppen 1–4 (Collector 0.10.0)
+
+Uli (05.11.2026): Nicht jeder Raum eine eigene Nummer, sondern **Prio 1, 2, 3, eventuell 4** – mehrere Räume je Prio.
+Einstellungen → **Raum-Prioritäten**: je Raum Prio wählen, *Prioritäten speichern*.
+Prio 1 wird zuerst geheizt, dann Prio 2 … Innerhalb einer Prio heizen höchstens **Gleichzeitig heizen** Räume
+(1–4 oder „ganze Prio“), zuerst der Raum, der am schnellsten fertig ist. Warteposition, Messung und Restzeit wie in 11/12.
+(Venediger behält die eindeutigen Nummern P1–P12.)
+
+1. Supabase: `supabase/migration-011-prio-gruppen.sql` (am 05.11.2026 bereits ausgeführt).
+   Startwerte: Prio 1 = OG Luis Bad, OG Luis Schlafzimmer, OG Eltern Bad, OG Eltern Schlafzimmer · Prio 4 = KG Bad · übrige Prio 2.
+2. Mini-PC: `git pull` → `C:\nssm\nssm.exe restart HeizungMuenchen` → Log „Collector 0.10.0 startet“
+   (nur Texte geändert – 0.9.0 rechnet mit den Gruppen bereits richtig).

@@ -157,7 +157,7 @@ test('Prio: Prio 1 zuerst, Prio 2 wartet bei aktueller Temperatur', () => {
   assert.equal(t.B.mode, 'WARTET');
   assert.equal(t.B.target, 20);
   assert.equal(res.activeRank, 1);
-  assert.match(res.reason, /Es heizt A 20,0 von 21,0/);
+  assert.match(res.reason, /Prio 1: es heizt A 20,0 von 21,0/);
 });
 
 test('Prio: Prio 1 fertig → Prio 2 dran, Prio 1 hält Sollwert', () => {

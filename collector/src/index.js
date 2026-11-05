@@ -14,7 +14,7 @@ import {
   shouldCaptureDayContext, applyHeatSequence, trackHeatRuns,
 } from './logic.js';
 
-const VERSION = '0.9.0';
+const VERSION = '0.10.0';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const stateDir = process.env.STATE_DIR || path.join(here, '..', 'state');
 const cacheFile = path.join(stateDir, 'cache.json');
