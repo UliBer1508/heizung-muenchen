@@ -45,6 +45,9 @@ Unterschied zu Venediger: Die Logik läuft **im Collector**, nicht als Edge Func
 Das Haus funktioniert auch ohne Internet, und es gibt kein „im Repo, aber nicht deployt“.
 Supabase dient nur als Speicher und als Brücke zur App.
 
+> **Neu (Entwurf 09.11.2026):** Heizen mit und ohne PV-Überschuss, Tagesmodi wie in Venediger – siehe
+> [`KONZEPT-TAGESMODI-2026-11-09.md`](KONZEPT-TAGESMODI-2026-11-09.md).
+
 ## Steuerung ab 0.5: Tagesphasen, PV-Stufen, Raumprofile
 
 Die Betriebsmodi unten waren die Logik bis 0.4. Seit 0.5 gilt (Details in `collector/src/logic.js`):
