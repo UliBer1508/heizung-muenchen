@@ -153,9 +153,10 @@ function localToIso(date: string, time: string): string {
 const HOUSE_MODE: Record<string, string> = {
   NACHT: 'Nachtabsenkung', MORGEN: 'Morgenbetrieb', TAG: 'Tagbetrieb', ABEND: 'Abendbetrieb',
   PV_1: 'PV-Stufe 1', PV_2: 'PV-Stufe 2', PV_3: 'PV-Stufe 3', BATTERIE_VOLL: 'Batterie voll',
+  PV: 'Heizen mit Sonnenstrom', WARTETAG: 'Wartetag, die Räume warten auf Sonnenstrom',
 };
 const ROOM_MODE: Record<string, string> = {
-  NORMAL: 'Normalbetrieb', ABSENK: 'Absenkung', WARTET: 'wartet auf die Heiz-Reihenfolge', PV: 'Aufheizen mit Sonnenstrom', VOLL: 'volles Aufheizen', OVERRIDE: 'manuell',
+  NORMAL: 'Normalbetrieb', ABSENK: 'Untergrenze', WARTET: 'wartet, bis ein Heizkreis frei ist', PV: 'Aufheizen mit Sonnenstrom', VOLL: 'volles Aufheizen', OVERRIDE: 'manuell',
 };
 const VEN_DAY_MODE: Record<string, string> = {
   wait: 'Wartetag, die Räume warten auf Sonnenstrom', grid: 'Grundheizung aus dem Netz', battery_gate: 'Batterieschutz',

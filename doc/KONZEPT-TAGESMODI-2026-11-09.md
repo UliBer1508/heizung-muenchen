@@ -1,6 +1,6 @@
 # Konzept: Heizen mit und ohne PV-Überschuss – München
 
-**Stand:** 9. November 2026 · **Status:** ENTWURF – zur Freigabe durch Uli
+**Stand:** 9. November 2026 · **Status:** FREIGEGEBEN (Uli, 09.11.2026) – umgesetzt in Collector 0.11.0, `migration-012-tagesmodi.sql`
 **Betrifft:** Collector (`collector/src/logic.js`), `muc_settings`, `muc_rooms`, App (Einstellungen, Übersicht)
 **Vorbild:** Venediger `doc/KONZEPT-TAGESABLAUF-HEIZUNG-2026-10-27.md` (freigegeben 27.10.2026),
 `FIX-ABEND-WIE-NACHT-2026-11-06.md`, `FIX-HEIZLEISTUNG-2026-11-06.md`, `SYSTEM_DOCUMENTATION.md` §4
@@ -49,7 +49,7 @@
 | **Wartetag** | bis Überschuss da ist | Räume halten ihre Untergrenze. Nur Räume darunter heizen (nach Priorität, Netzgrenze). |
 | **Schlechter Tag** = Modell b | ganzer Tag, solange kein Überschuss | Räume mit Profil *morgens/tagsüber* in dieser Phase auf **Normal**, nach Priorität, begrenzt durch die **Netzgrenze**. |
 | **Überschuss** = Modell a | Überschuss ≥ *Stufe 1 ein* (1,5 kW) | Überschuss nach Priorität verteilen: Räume auf **PV-Wert**, bei vollem Akku auf **Voll**. So viele Räume, wie der Überschuss trägt. |
-| **Abend** | Sonnenuntergang bis *Nacht ab* | wie Nacht: Ziel = Untergrenze. Ausnahme nur bei echtem Überschuss (Modell a). |
+| **Abend** | *Abend ab* (17:00) bis *Nacht ab* | wie Nacht: Ziel = Untergrenze. Ausnahme nur bei echtem Überschuss (Modell a). |
 
 Wechsel Wartetag ↔ Schlechter Tag bei jedem Lauf neu: Bricht die Prognose ein, wird aus dem Wartetag ein Schlechter Tag.
 
@@ -82,13 +82,15 @@ Wechsel Wartetag ↔ Schlechter Tag bei jedem Lauf neu: Bricht die Prognose ein,
 
 | Wert | Tabelle | Anzeige in der App | Startwert | Bedeutung |
 |---|---|---|---|---|
-| **`floor_temp`** (neu) | muc_rooms | Einstellungen › Räume › „Untergrenze“ | **offen, siehe 9.1** | So weit darf der Raum ohne Sonne fallen. Ziel nachts, abends und am Wartetag. |
-| **`max_grid_kw`** bzw. **`max_grid_circuits`** (neu) | muc_settings | Einstellungen › Haus › „Max. Heizleistung ohne PV“ | 6 Kreise ≈ 2 kW (8.1) | Netzgrenze Modell b, nachts und am Wartetag |
-| **`wait_threshold`** (neu) | muc_settings | Einstellungen › Haus › „Wartetag ab“ | 1,0 | Verhältnis erwarteter Überschuss / Bedarf, ab dem gewartet wird |
-| `temp_night` (Absenk) | muc_rooms | bleibt | – | wird nicht mehr als Nachtziel verwendet (ersetzt durch Untergrenze), siehe 9.2 |
-| `reserve_soc` („Abends heizen nur ab Akku“) | muc_settings | entfällt | – | Abend wie Nacht |
-| `seq_max_rooms`, `seq_max_minutes` | muc_settings | entfällt | – | ersetzt durch Budget (a) und Netzgrenze (b) |
-| `pv_prio` und `priority` | muc_rooms | **eine** Priorität | – | siehe 9.3 |
+| `temp_night` → **Untergrenze** | muc_rooms | Einstellungen › Raum › „Untergrenze“ | bisheriger Absenkwert, stellt Uli je Raum ein | So weit darf der Raum ohne Sonne fallen. Ziel nachts, abends und am Wartetag; darunter wird geheizt. |
+| **`max_grid_circuits`** | muc_settings | Einstellungen › Haus › Ohne PV-Überschuss › „Netzgrenze“ | 6 Kreise ≈ 2 kW (8.1) | Netzgrenze – gilt immer, auch nachts und für Räume unter der Untergrenze |
+| **`wait_min_kwh`** | muc_settings | „Wartetag ab erwartetem Überschuss“ | 5 kWh | Rest-PV heute − Grundlast − Akku bis voll; 0 = nie warten |
+| **`battery_kwh`** | muc_settings | Batterie › „Akku-Kapazität“ | 10 kWh | für „Akku bis voll“ |
+| **`wait_boost_min`** | muc_settings | „Wer so lange wartet, ist zuerst dran“ | 60 min | wie Venediger `cap_wait_boost_min` |
+| `surplus_on_w`, `stage_up_w`, `surplus_off_w` | muc_settings | Mit PV-Überschuss | 1500 / 1000 / 300 W | Modell a: ein ab · je so viel übrig ein Raum mehr · ein Raum weniger |
+| `priority` | muc_rooms | Raum-Prioritäten | wie eingestellt | **eine** Priorität für beide Modelle |
+| `pv_prio` | muc_rooms | Heizplan › „Mit Sonne“ ja/nie | – | nur noch 0 = nie mit PV laden |
+| `reserve_soc`, `heat_evening`, `sequence_enabled`, `seq_max_rooms`, `seq_max_minutes` | – | ausgeblendet | – | nicht mehr verwendet (Spalten bleiben) |
 
 ## 7. Unterschiede zu Venediger (durch die Heizart bedingt)
 
@@ -142,26 +144,26 @@ Mit mehr offenen Kreisen zieht die Wärmepumpe mehr Strom, aber nicht proportion
 | 08.11. | 20,3 kWh | 8 | 5,3 kWh | 6,2 °C |
 | 09.11. (bis 11 Uhr) | 28,3 kWh | 12 | 20,7 kWh | 2,8 °C |
 
-## 9. Offene Entscheidungen (Uli)
+## 9. Entscheidungen (Uli, 09.11.2026)
 
-1. **Untergrenze je Raum.** Vorschlag als Startwert: Schlaf- und Wohnräume Normal − 3 °C (≈ 19 °C), Bäder
-   Normal − 2 °C (≈ 20 °C), Flur/Ankleide/Büro OG Normal − 3,5 °C. In Venediger gilt Eco − 1 bzw. − 0,5 °C,
-   aber dort sind die Räume abends auf Eco. In München liegen die Räume heute bei 18–19 °C – eine Untergrenze von 21 °C
-   würde die Wärmepumpe jede Nacht laufen lassen.
-2. **Absenk.** Bleibt als Wert für die KI-Raumanalyse („Absenk = Normal − 1“) oder entfällt zugunsten der Untergrenze?
-3. **Eine Priorität statt zwei.** Heute gibt es `pv_prio` (PV-Stufe 1–3, auf den Kacheln „PV Prio“) und `priority`
-   (Heiz-Reihenfolge 1–4). Vorschlag wie Venediger: **eine** Priorität für beide Modelle. Die PV-Stufen ergeben sich
-   dann aus dem Budget.
-4. **Abend wie Nacht** ohne Ausnahme, oder Profil *abends* weiter erlauben, wenn der Akku über der Reserve ist?
-5. **Netzgrenze** als Anzahl Kreise (heute machbar) bestätigen, Startwert 6.
+1. **Untergrenze und alle Raumtemperaturen stellt Uli je Raum selbst ein.** Die App verändert keine Raumwerte.
+2. **Absenk entfällt**, die Untergrenze ersetzt ihn (derselbe Wert `temp_night`, neue Bedeutung).
+3. **Eine Priorität** (`priority`) für Modell a und b, wie Venediger.
+4. **Abend wie Nacht** ohne Ausnahme (außer echtem Überschuss).
+5. **Netzgrenze 6 Kreise** als Startwert.
 
-## 10. Umsetzung (nach Freigabe)
+> Hinweis 09.11.2026: Die meisten Räume stehen auf Untergrenze 21 °C bei 18–19 °C Raumtemperatur. Damit heizt die Wärmepumpe
+> nachts weiter – künftig aber nur auf 6 statt allen Kreisen. Erst eine niedrigere Untergrenze lässt sie nachts aus.
+
+## 10. Umsetzung (09.11.2026, Collector 0.11.0)
 
 | Schritt | Datei | Inhalt |
 |---|---|---|
-| Datenbank | `supabase/migration-012-tagesmodi.sql` | `muc_rooms.floor_temp`, `muc_settings.max_grid_circuits`, `wait_threshold`; Startwerte |
-| Steuerung | `collector/src/logic.js` | Tagesmodus (Nacht / Wartetag / Schlechter Tag / Überschuss / Abend), Budget-Verteilung (a), Netzgrenze (b), Wartende = Ist − 0,3 °C, Untergrenze; Tests in `collector/test/logic.test.js` |
-| App | `frontend/src/Settings.jsx`, Übersicht | Untergrenze je Raum, Netzgrenze, Wartetag-Schwelle; Kacheln zeigen Tagesmodus und Heiz-Prio |
-| KI | `supabase/migration-007-ki.sql` | Regel „Absenk fehlt“ an Untergrenze anpassen |
-| Doku | `KONZEPT.md`, `INBETRIEBNAHME.md`, `STAND-UND-ROADMAP.md` | nachziehen |
-| Venediger | – | nichts zu ändern; München übernimmt dessen Begriffe |
+| Datenbank | `supabase/migration-012-tagesmodi.sql` (am 09.11. ausgeführt) | `max_grid_circuits`, `wait_min_kwh`, `battery_kwh`, `wait_boost_min`, `muc_collector_status.day_mode` |
+| Steuerung | `collector/src/logic.js` | `dayModeOf` (Nacht / Abend / Wartetag / ohne PV), `expectedSurplusKwh`, `desiredPvLevel` (Anzahl Räume statt Stufe 1–3), `roomTarget` (Untergrenze bzw. Normal nach Profil), `allocateRooms` (Untergrenze → Überschuss → Netzgrenze, Wartende Ist − 0,5 °C, Nachlauf zählt mit, Wartezeit-Vorrang) – ersetzt `applyHeatSequence` |
+| Hauptschleife | `collector/src/index.js` | FEMS-Prognose im Cache, Tagesmodus im Status (`day_mode`), Protokoll bei jedem Wechsel der heizenden Räume |
+| Tests | `collector/test/logic.test.js` | 36 Tests, u. a. Nacht 08./09.11. mit 13 Räumen → 6 Kreise |
+| App | `Settings.jsx`, `lib.js`, `Overview.jsx`, `Ki.jsx` | Untergrenze, Netzgrenze, Wartetag, Abend-Spalte entfernt, „Mit Sonne“ ja/nie, Prioritäten ohne Schalter |
+| Alexa | `supabase/functions/alexa-heizung/index.ts` | Texte für die neuen Modi (Einspielen siehe `ALEXA.md` §5) |
+
+Hausmodus im Protokoll: `NACHT`, `MORGEN`, `TAG`, `ABEND` (ohne PV), `WARTETAG`, `PV`, `BATTERIE_VOLL`.

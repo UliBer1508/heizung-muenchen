@@ -237,7 +237,7 @@ function RoomCard({ room, reading, reload }) {
         {err && <div className="alert">{err}</div>}
       </div>
       <div className="room-temps muted small">
-        Absenk {fmtT(room.temp_night)} · Normal {fmtT(room.temp_normal)} · PV {fmtT(room.temp_pv)} · Voll {fmtT(room.temp_full)}
+        Untergrenze {fmtT(room.temp_night)} · Normal {fmtT(room.temp_normal)} · PV {fmtT(room.temp_pv)} · Voll {fmtT(room.temp_full)}
       </div>
     </section>
   );

@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   DEFAULT_SETTINGS as S, inWindow, parseHm, surplusW, phaseAt, desiredPvLevel, holdPvLevel, houseModeOf,
-  roomTarget, needsWrite, averageEnergy, localMinutes, PV_FULL, shouldCaptureDayContext, applyHeatSequence, trackHeatRuns,
+  roomTarget, needsWrite, averageEnergy, localMinutes, PV_FULL, shouldCaptureDayContext, allocateRooms, trackHeatRuns,
+  dayModeOf, expectedSurplusKwh, holdBelow,
 } from '../src/logic.js';
 
 // Zeitpunkt in Berliner Ortszeit (Ende Oktober 2026 = UTC+1)
@@ -15,7 +16,7 @@ const base = {
 const kueche = { ...base, heat_morning: true, heat_day: true, heat_evening: true, pv_prio: 1 };
 const schlaf = { ...base, temp_night: 17, temp_normal: 18.5, temp_pv: 20, temp_full: 21, heat_morning: false, heat_day: false, heat_evening: false, pv_prio: 3 };
 const nie = { ...base, heat_morning: false, heat_day: false, heat_evening: false, pv_prio: 0 };
-const T = (room, phase, level = 0, soc = 80, now = at('12:00')) => roomTarget({ room, phase, level, soc, now, settings: S });
+const T = (room, phase, dayMode = 'grid', now = at('12:00')) => roomTarget({ room, phase, dayMode, now });
 
 test('Zeitfenster über Mitternacht', () => {
   assert.equal(inWindow(parseHm('23:00'), '22:00', '06:00'), true);
@@ -39,21 +40,23 @@ test('Überschuss: Einspeisung zählt immer, Laden nur ab pv_min_soc', () => {
   assert.equal(surplusW({ gridW: 3600, batteryW: 800, soc: 76 }, S), 0);
 });
 
-test('PV-Stufen: ein, hoch, runter, voll', () => {
-  const lvl = (e, cur, phase = 'TAG') => desiredPvLevel({ energy: { batteryW: 0, soc: 80, ...e }, phase, settings: S, currentLevel: cur }).level;
+test('Überschuss (Modell a): Raumzahl nach Überschuss, hoch, runter, voll', () => {
+  const lvl = (e, cur, phase = 'TAG', n = 10) => desiredPvLevel({ energy: { batteryW: 0, soc: 80, ...e }, phase, settings: S, currentLevel: cur, nRooms: n }).level;
   assert.equal(lvl({ gridW: -1000 }, 0), 0);          // zu wenig zum Einschalten
-  assert.equal(lvl({ gridW: -1600 }, 0), 1);          // Stufe 1
-  assert.equal(lvl({ gridW: -500 }, 1), 1);           // läuft, Rest reicht nicht für Stufe 2
-  assert.equal(lvl({ gridW: -1200 }, 1), 2);          // noch 1200 W übrig → Stufe 2
-  assert.equal(lvl({ gridW: -1200 }, 3), 3);          // Stufe 3 ist das Maximum
-  assert.equal(lvl({ gridW: 100 }, 2), 1);            // Bezug → eine Stufe zurück
+  assert.equal(lvl({ gridW: -1600 }, 0), 1);          // knapp → ein Raum
+  assert.equal(lvl({ gridW: -3600 }, 0), 3);          // 1,5 kW + 2 × 1 kW → drei Räume
+  assert.equal(lvl({ gridW: -500 }, 2), 2);           // läuft, Rest reicht nicht für mehr
+  assert.equal(lvl({ gridW: -2200 }, 2), 4);          // noch 2,2 kW übrig → zwei Räume mehr
+  assert.equal(lvl({ gridW: -9000 }, 8), 10);         // höchstens alle Räume
+  assert.equal(lvl({ gridW: 100 }, 3), 2);            // Bezug → ein Raum weniger
+  assert.equal(lvl({ gridW: 100 }, 1), 0);            // letzter Raum → Überschuss-Heizen endet
   assert.equal(lvl({ gridW: -3500, soc: 96 }, 1), PV_FULL);
-  assert.equal(lvl({ gridW: -500, soc: 90 }, PV_FULL), 3);
+  assert.equal(lvl({ gridW: -500, soc: 90 }, PV_FULL), 10);
   assert.equal(lvl({ gridW: -5000 }, 2, 'NACHT'), 0); // nachts nie
-  assert.equal(desiredPvLevel({ energy: null, phase: 'TAG', settings: S, currentLevel: 2 }).level, 0);
+  assert.equal(desiredPvLevel({ energy: null, phase: 'TAG', settings: S, currentLevel: 2, nRooms: 5 }).level, 0);
 });
 
-test('Haltezeit für Stufenwechsel, Nacht sofort', () => {
+test('Haltezeit für Wechsel, Nacht sofort', () => {
   const cur = { level: 1, since: at('12:00') };
   const early = holdPvLevel({ desired: { level: 2, reason: 'x' }, current: cur, now: at('12:10'), settings: S });
   assert.equal(early.level, 1);
@@ -62,56 +65,67 @@ test('Haltezeit für Stufenwechsel, Nacht sofort', () => {
   assert.equal(holdPvLevel({ desired: { level: 0, reason: 'x', immediate: true }, current: cur, now: at('12:05'), settings: S }).level, 0);
 });
 
-test('Hausmodus aus Phase und Stufe', () => {
-  assert.equal(houseModeOf('MORGEN', 0), 'MORGEN');
-  assert.equal(houseModeOf('TAG', 2), 'PV_2');
-  assert.equal(houseModeOf('TAG', 4), 'BATTERIE_VOLL');
+test('Hausmodus', () => {
+  assert.equal(houseModeOf('MORGEN', 0, 'grid'), 'MORGEN');
+  assert.equal(houseModeOf('TAG', 3, 'grid'), 'PV');
+  assert.equal(houseModeOf('TAG', PV_FULL, 'grid'), 'BATTERIE_VOLL');
+  assert.equal(houseModeOf('TAG', 0, 'wait'), 'WARTETAG');
+  assert.equal(houseModeOf('NACHT', 0, 'night'), 'NACHT');
 });
 
-test('Morgens heizt nur, wer "morgens heizen" hat', () => {
-  assert.equal(T(kueche, 'MORGEN').target, 21);
-  assert.equal(T(kueche, 'MORGEN').mode, 'NORMAL');
-  assert.equal(T(schlaf, 'MORGEN').target, 17);
-  assert.equal(T(schlaf, 'MORGEN').mode, 'ABSENK');
+// FEMS-Prognose: Leistung jetzt und in 1/3/6/12 h
+const fc = (pv1, pv3, pv6, pv12 = 0, at_ = at('09:00')) => ({ at: at_.toISOString(), pv_1h: pv1, pv_3h: pv3, pv_6h: pv6, pv_12h: pv12 });
+
+test('Erwarteter Überschuss: PV minus Grundlast minus Akku bis voll', () => {
+  // 08.11.2026 09:06 – mittags kam der Überschuss
+  assert.equal(expectedSurplusKwh({ forecast: fc(1107, 1372, 2672), energy: { pvW: 1500, soc: 3 }, settings: S, now: at('09:10') }), 5);
+  // 09.11.2026 08:13 – trüb, Akku leer
+  assert.ok(expectedSurplusKwh({ forecast: fc(969, 1899, 517, 0, at('08:13')), energy: { pvW: 135, soc: 0 }, settings: S, now: at('08:20') }) < 0);
+  // alte Prognose zählt nicht
+  assert.equal(expectedSurplusKwh({ forecast: fc(3000, 3000, 3000), energy: { pvW: 0, soc: 0 }, settings: S, now: at('11:00') }), null);
 });
 
-test('Nachts alle Räume auf Absenkwert', () => {
-  assert.equal(T(kueche, 'NACHT', 0, 80, at('23:00')).target, 19);
-  assert.equal(T(schlaf, 'NACHT', 0, 80, at('23:00')).target, 17);
+test('Tagesmodus: Nacht, Abend wie Nacht, Wartetag, ohne PV', () => {
+  const sunny = fc(3000, 4000, 3000, 0, at('09:00'));
+  const dull = fc(300, 400, 200, 0, at('09:00'));
+  const D = (phase, forecast, soc = 80, now = at('09:10')) => dayModeOf({ phase, energy: { pvW: 1000, soc }, forecast, settings: S, now }).mode;
+  assert.equal(D('NACHT', sunny), 'night');
+  assert.equal(D('ABEND', sunny), 'evening');
+  assert.equal(D('TAG', sunny), 'wait');
+  assert.equal(D('TAG', dull), 'grid');
+  assert.equal(D('TAG', null), 'grid');                       // keine Prognose → nicht warten
+  assert.equal(dayModeOf({ phase: 'TAG', energy: { pvW: 1000, soc: 80 }, forecast: sunny, settings: { ...S, wait_min_kwh: 0 }, now: at('09:10') }).mode, 'grid');
 });
 
-test('PV-Stufen nach Raum-Priorität', () => {
-  assert.equal(T(kueche, 'TAG', 1).target, 23);  // Prio 1 ab Stufe 1
-  assert.equal(T(schlaf, 'TAG', 1).target, 17);  // Prio 3 wartet
-  assert.match(T(schlaf, 'TAG', 1).reason, /wartet auf PV-Stufe 3/);
-  assert.equal(T(schlaf, 'TAG', 3).target, 20);
-  assert.equal(T(schlaf, 'TAG', PV_FULL).target, 21);
-  assert.equal(T(nie, 'TAG', PV_FULL).target, 19); // Prio 0 = nie mit PV
-});
-
-test('Abends nur heizen, wenn der Akku reicht', () => {
-  assert.equal(T(kueche, 'ABEND', 0, 70, at('18:00')).target, 21);
-  assert.equal(T(kueche, 'ABEND', 0, 40, at('18:00')).target, 19);
-  assert.equal(T(schlaf, 'ABEND', 0, 90, at('18:00')).target, 17);
-});
-
-test('Ohne Profilspalten: Verhalten wie bisher (immer Normal, Prio 1)', () => {
-  assert.equal(T(base, 'MORGEN').target, 21);
-  assert.equal(T(base, 'TAG', 1).target, 23);
+test('Wunschwert: Nacht, Abend, Wartetag = Untergrenze; ohne PV nach Profil', () => {
+  assert.equal(T(kueche, 'NACHT', 'night', at('23:00')).target, 19);
+  assert.equal(T(kueche, 'ABEND', 'evening', at('18:00')).target, 19);   // Abend wie Nacht, auch mit „abends heizen“
+  assert.equal(T(kueche, 'TAG', 'wait').target, 19);
+  assert.equal(T(kueche, 'MORGEN', 'grid').target, 21);
+  assert.equal(T(kueche, 'MORGEN', 'grid').mode, 'NORMAL');
+  assert.equal(T(schlaf, 'MORGEN', 'grid').target, 17);
+  assert.equal(T(schlaf, 'MORGEN', 'grid').mode, 'ABSENK');
+  assert.equal(T(base, 'TAG', 'grid').target, 21);                      // ohne Profilspalten: Normal
 });
 
 test('Override hat Vorrang, abgelaufen nicht mehr', () => {
   const ov = { ...schlaf, override_temp: 25, override_until: at('14:00').toISOString() };
-  const r = T(ov, 'TAG', 0, 80, at('13:00'));
+  const r = T(ov, 'TAG', 'grid', at('13:00'));
   assert.equal(r.mode, 'OVERRIDE');
   assert.equal(r.target, 25);
-  assert.equal(T(ov, 'TAG', 0, 80, at('15:00')).target, 17);
+  assert.equal(T(ov, 'TAG', 'grid', at('15:00')).target, 17);
 });
 
 test('Sicherheitsgrenzen 5–26 °C', () => {
-  const crazy = { ...kueche, temp_pv: 40, temp_night: 0 };
-  assert.equal(T(crazy, 'TAG', 1).target, 26);
-  assert.equal(T(crazy, 'NACHT', 0, 80, at('23:00')).target, 5);
+  const crazy = { ...kueche, temp_normal: 40, temp_night: 0 };
+  assert.equal(T(crazy, 'TAG', 'grid').target, 26);
+  assert.equal(T(crazy, 'NACHT', 'night', at('23:00')).target, 5);
+});
+
+test('Wartewert: Ist − 0,5 °C abgerundet auf 0,5, nie über dem Wunsch', () => {
+  assert.equal(holdBelow(18.4, 22), 17.5);
+  assert.equal(holdBelow(19.0, 22), 18.5);
+  assert.equal(holdBelow(19.0, 18), 18);
 });
 
 test('Schreiben nur bei Abweichung', () => {
@@ -143,103 +157,121 @@ test('Tagesprotokoll: einmal am Tag, nicht nachts', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Raum-Prioritäten (0.7/0.8)
-const SQ = { ...S, sequence_enabled: true, seq_max_rooms: 0 };   // alle Räume einer Prio gemeinsam
-const SQ1 = { ...S, sequence_enabled: true, seq_max_rooms: 1 };  // einer nach dem anderen
-const r = (id, rank, extra = {}) => ({ ...kueche, id, name: id, priority: rank, ...extra });
-const item = (room, temp, phase = 'TAG', level = 0) => ({ room, temp, t: T(room, phase, level) });
+// Verteilung auf die Kreise (0.11)
+const r = (id, prio, extra = {}) => ({ ...kueche, id, name: id, priority: prio, ...extra });
+const item = (room, temp, phase = 'TAG', dayMode = 'grid', valve = 0) => ({ room, temp, state: { valve }, t: T(room, phase, dayMode) });
 const byId = (res) => Object.fromEntries(res.items.map((it) => [it.room.id, it.t]));
+const A = (items, extra = {}) => allocateRooms({ items, settings: S, now: at('12:00'), ...extra });
 
-test('Prio: Prio 1 zuerst, Prio 2 wartet bei aktueller Temperatur', () => {
-  const res = applyHeatSequence({ items: [item(r('A', 1), 20), item(r('B', 2), 20)], settings: SQ, now: at('12:00') });
+test('Modell b: Netzgrenze – höchstens max_grid_circuits Räume, nach Priorität', () => {
+  const rooms = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map((id, i) => item(r(id, i < 4 ? 1 : 2), 19));
+  const res = A(rooms);
   const t = byId(res);
-  assert.equal(t.A.target, 21);
-  assert.equal(t.B.mode, 'WARTET');
-  assert.equal(t.B.target, 20);
-  assert.equal(res.activeRank, 1);
-  assert.match(res.reason, /Prio 1: es heizt A 20,0 von 21,0/);
+  assert.equal(res.active.length, 6);
+  for (const id of ['a', 'b', 'c', 'd', 'e', 'f']) assert.equal(t[id].target, 21);
+  assert.equal(t.g.mode, 'WARTET');
+  assert.equal(t.g.target, 18.5);            // Ist 19 − 0,5 → Ventil zu
+  assert.match(t.g.reason, /Netzgrenze 6 Kreise voll/);
 });
 
-test('Prio: Prio 1 fertig → Prio 2 dran, Prio 1 hält Sollwert', () => {
-  const t = byId(applyHeatSequence({ items: [item(r('A', 1), 20.8), item(r('B', 2), 20), item(r('C', 3), 20)], settings: SQ, now: at('12:00') }));
-  assert.equal(t.A.target, 21);
-  assert.equal(t.B.target, 21);
-  assert.equal(t.C.mode, 'WARTET');
+test('Modell b: alle Räume einer Prio heizen gemeinsam, Prio 2 kommt dazu, solange die Grenze nicht voll ist', () => {
+  const t = byId(A([item(r('a', 1), 19), item(r('b', 1), 19), item(r('c', 2), 19)]));
+  assert.equal(t.a.target, 21);
+  assert.equal(t.b.target, 21);
+  assert.equal(t.c.target, 21);               // Grenze 6 nicht erreicht → heizt auch
 });
 
-test('Prio: gleiche Prio und seq_max_rooms 0 → gemeinsam', () => {
-  const t = byId(applyHeatSequence({ items: [item(r('A', 1), 20), item(r('B', 1), 20), item(r('C', 2), 20)], settings: SQ, now: at('12:00') }));
-  assert.equal(t.A.target, 21);
-  assert.equal(t.B.target, 21);
-  assert.equal(t.C.mode, 'WARTET');
+test('Modell b: fertige Räume halten Normal und belegen keinen Kreis – außer ihr Ventil ist noch offen', () => {
+  const rooms = [item(r('a', 1), 21, 'TAG', 'grid', 1), item(r('b', 1), 21), ...['c', 'd', 'e', 'f', 'g', 'h'].map((id) => item(r(id, 2), 19))];
+  const res = A(rooms);
+  const t = byId(res);
+  assert.equal(t.a.target, 21);
+  assert.equal(t.b.target, 21);
+  assert.equal(res.gridUsed, 6);              // a im Nachlauf + 5 neue
+  assert.equal(t.h.mode, 'WARTET');
 });
 
-test('Prio: seq_max_rooms 1 → einer nach dem anderen, schnellster zuerst, dann bleibt er dran', () => {
-  const items = [item(r('A', 1), 19), item(r('B', 1), 20.5)];
-  const first = applyHeatSequence({ items, settings: SQ1, now: at('12:00') });
-  assert.deepEqual(first.active, ['B']);          // B ist näher am Soll
-  assert.equal(byId(first).A.mode, 'WARTET');
-  // B ist jetzt weiter weg als A – bleibt trotzdem dran, bis fertig
-  const later = applyHeatSequence({ items: [item(r('A', 1), 20.6), item(r('B', 1), 20.6)], settings: SQ1, turn: first.turn, now: at('12:30') });
-  assert.deepEqual(later.active, ['B']);
+test('Nacht: nur Räume unter der Untergrenze heizen, unter der Netzgrenze', () => {
+  const rooms = [item(r('a', 1), 18, 'NACHT', 'night'), item(r('b', 2), 19.5, 'NACHT', 'night'), item(r('c', 2), 17, 'NACHT', 'night')];
+  const t = byId(allocateRooms({ items: rooms, settings: { ...S, max_grid_circuits: 1 }, dayMode: 'night', now: at('23:00') }));
+  assert.equal(t.a.target, 19);               // unter Untergrenze, Prio 1 → heizt bis 19
+  assert.match(t.a.reason, /unter Untergrenze 19,0/);
+  assert.equal(t.b.target, 19);               // warm genug → hält 19, heizt nicht
+  assert.equal(t.c.mode, 'WARTET');           // Grenze 1 Kreis voll
+  assert.equal(t.c.target, 16.5);
 });
 
-test('Prio: gelernte Aufheizrate bestimmt die Reihenfolge und die Restzeit', () => {
-  const items = [item(r('A', 1), 20), item(r('B', 1), 19.5)];
-  const res = applyHeatSequence({ items, settings: SQ1, rates: { A: 0.1, B: 0.5 }, now: at('12:00') });
-  assert.deepEqual(res.active, ['B']);             // B: 1,5 °C / 0,5 = 3 h; A: 1 °C / 0,1 = 10 h
-  assert.equal(res.eta.B, 180);
-  assert.match(res.reason, /fertig in ca\. 3 h 00 min/);
+test('Nacht 08./09.11.: Untergrenze 21 bei 18–19 °C – nur noch 6 statt aller Kreise', () => {
+  const rooms = Array.from({ length: 13 }, (_, i) => item(r(`r${i}`, i < 4 ? 1 : 2, { temp_night: 21 }), 18.5, 'NACHT', 'night'));
+  const res = allocateRooms({ items: rooms, settings: S, dayMode: 'night', now: at('23:00') });
+  assert.equal(res.active.length, 6);
 });
 
-test('Prio: Hysterese – fertiger Raum fällt erst unter Soll − 0,8 zurück', () => {
-  const reached = new Set(['A']);
-  const still = byId(applyHeatSequence({ items: [item(r('A', 1), 20.4), item(r('B', 2), 20)], settings: SQ, reached, now: at('12:00') }));
-  assert.equal(still.B.target, 21);
-  const back = byId(applyHeatSequence({ items: [item(r('A', 1), 20.1), item(r('B', 2), 20)], settings: SQ, reached, now: at('12:00') }));
-  assert.equal(back.B.mode, 'WARTET');
+test('Wartetag: Räume über der Untergrenze heizen nicht', () => {
+  const res = A([item(r('a', 1), 19.5, 'TAG', 'wait'), item(r('b', 2), 20, 'TAG', 'wait')], { dayMode: 'wait' });
+  assert.equal(res.active.length, 0);
+  assert.equal(byId(res).a.target, 19);
 });
 
-test('Prio: Absenk-, manuelle und Räume ohne Messwert blockieren nicht', () => {
-  const man = r('M', 1, { override_temp: 24, override_until: '2026-10-28T13:00:00+01:00' });
-  const t = byId(applyHeatSequence({
-    items: [item(man, 18), item(r('S', 1, { heat_day: false, pv_prio: 3 }), 15), item(r('X', 2), null), item(r('B', 3), 20)],
-    settings: SQ, now: at('12:00'),
-  }));
-  assert.equal(t.M.mode, 'OVERRIDE');
-  assert.equal(t.S.mode, 'ABSENK');
-  assert.equal(t.B.target, 21);
+test('Modell a: Überschuss reicht für 2 Räume → Prio 1 zuerst auf PV-Wert, Rest wartet auf mehr Überschuss', () => {
+  const rooms = [item(r('a', 1), 21, 'TAG', 'wait'), item(r('b', 1), 21, 'TAG', 'wait'), item(r('c', 2), 21, 'TAG', 'wait'), item(r('d', 2), 21, 'TAG', 'wait')];
+  const res = A(rooms, { dayMode: 'wait', level: 2 });
+  const t = byId(res);
+  assert.equal(t.a.target, 23);
+  assert.equal(t.a.mode, 'PV');
+  assert.equal(t.b.target, 23);
+  assert.equal(t.c.target, 19);               // Wartetag-Grundwert, Ventil zu (warm genug)
+  assert.match(t.c.reason, /wartet auf mehr Überschuss/);
+  assert.equal(res.pvUsed, 2);
+  assert.equal(res.gridUsed, 0);
 });
 
-test('Prio: bleibt die Gruppe seq_max_minutes gleich, heizt ein Raum mehr', () => {
-  const items = [item(r('A', 1), 19.5), item(r('B', 2), 19.5), item(r('C', 3), 19.5)];
-  const first = applyHeatSequence({ items, settings: SQ1, now: at('10:00') });
-  assert.deepEqual(first.active, ['A']);
-  const later = applyHeatSequence({ items, settings: SQ1, turn: first.turn, now: at('13:05') });
-  assert.deepEqual(later.active.sort(), ['A', 'B']);
-  assert.equal(byId(later).C.mode, 'WARTET');
-  assert.match(later.reason, /ein Raum zusätzlich freigegeben/);
+test('Modell a: am Tag ohne PV-Prognose bekommen die übrigen Räume Normal unter der Netzgrenze', () => {
+  const rooms = [item(r('a', 1), 20), item(r('b', 2), 20), item(r('c', 2), 20)];
+  const t = byId(A(rooms, { level: 1 }));
+  assert.equal(t.a.target, 23);               // PV
+  assert.equal(t.b.target, 21);               // Normal aus Netzgrenze
+  assert.equal(t.c.target, 21);
 });
 
-test('Prio: Wartewert bleibt eingefroren, bis der Raum dran ist', () => {
-  const first = applyHeatSequence({ items: [item(r('A', 1), 18), item(r('B', 2), 18.27)], settings: SQ, now: at('12:00') });
-  assert.equal(byId(first).B.target, 18.2);
-  const cooler = applyHeatSequence({ items: [item(r('A', 1), 18.5), item(r('B', 2), 17.6)], settings: SQ, waits: first.waits, now: at('12:30') });
-  assert.equal(byId(cooler).B.target, 18.2);
-  const turn = applyHeatSequence({ items: [item(r('A', 1), 20.9), item(r('B', 2), 17.6)], settings: SQ, waits: cooler.waits, now: at('14:00') });
-  assert.equal(byId(turn).B.target, 21);
-  assert.equal(turn.waits.B, undefined);
+test('Modell a: Batterie voll → alle PV-Räume auf Voll, „nie mit PV“ nicht', () => {
+  const rooms = [item(r('a', 1), 21), item(r('b', 3), 21), item(r('n', 2, { pv_prio: 0 }), 21)];
+  const t = byId(A(rooms, { level: PV_FULL }));
+  assert.equal(t.a.target, 24);
+  assert.equal(t.b.target, 24);
+  assert.equal(t.n.target, 21);
 });
 
-test('Prio aus: alles wie bisher', () => {
-  const t = byId(applyHeatSequence({ items: [item(r('A', 1), 15), item(r('B', 2), 15)], settings: S, now: at('12:00') }));
-  assert.equal(t.B.target, 21);
+test('Modell a: Raum hat PV-Wert erreicht → hält ihn ohne Kreis, nächster Raum kommt dran', () => {
+  const rooms = [item(r('a', 1), 22.9), item(r('b', 2), 21)];
+  const res = A(rooms, { level: 1 });
+  const t = byId(res);
+  assert.equal(t.a.target, 23);
+  assert.equal(t.b.target, 23);
+  assert.deepEqual(res.active, ['b']);
 });
 
-test('Prio mit PV: PV-Wert zählt als Soll', () => {
-  const t = byId(applyHeatSequence({ items: [item(r('A', 1), 21, 'TAG', 1), item(r('B', 2), 21, 'TAG', 1)], settings: SQ, now: at('12:00') }));
-  assert.equal(t.A.target, 23);
-  assert.equal(t.B.mode, 'WARTET');
+test('Hysterese: erreichter Wunsch gilt erst unter Wunsch − 0,8 wieder als offen', () => {
+  const reached = new Set(['a@21']);
+  const still = A([item(r('a', 1), 20.4)], { reached, settings: { ...S, max_grid_circuits: 1 } });
+  assert.equal(still.active.length, 0);
+  const back = A([item(r('a', 1), 20.1)], { reached, settings: { ...S, max_grid_circuits: 1 } });
+  assert.deepEqual(back.active, ['a']);
+});
+
+test('Wer lange wartet, kommt zuerst dran', () => {
+  const rooms = [item(r('a', 1), 19), item(r('b', 2), 19)];
+  const settings = { ...S, max_grid_circuits: 1 };
+  assert.deepEqual(allocateRooms({ items: rooms, settings, now: at('12:00') }).active, ['a']);
+  assert.deepEqual(allocateRooms({ items: rooms, settings, waitSince: { b: at('10:30').toISOString() }, now: at('12:00') }).active, ['b']);
+});
+
+test('Manuelle Räume zählen mit, Räume ohne Messwert blockieren nicht', () => {
+  const man = r('m', 1, { override_temp: 24, override_until: '2026-10-28T13:00:00+01:00' });
+  const t = byId(A([item(man, 18), item(r('x', 1), null), item(r('b', 2), 19)], { settings: { ...S, max_grid_circuits: 2 } }));
+  assert.equal(t.m.mode, 'OVERRIDE');
+  assert.equal(t.x.target, 21);
+  assert.equal(t.b.target, 21);
 });
 
 test('Aufheiz-Messung: Lauf beginnt beim Heizen und endet, wenn der Raum fertig ist', () => {

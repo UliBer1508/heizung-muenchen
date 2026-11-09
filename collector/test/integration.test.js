@@ -113,11 +113,11 @@ test('Ein Durchlauf: Überschuss → KG Bad bekommt PV-Sollwert', async () => {
   });
   fems.close();
   lox.server.close();
-  assert.match(out, /Modus: – → PV_1/);
+  assert.match(out, /Modus: – → PV \(/);
   assert.match(out, /KG Bad: Soll 21 → 23 °C/);
   assert.ok(lox.calls.some((c) => c.name === 'API_Boost_Bad' && c.cmd === '23.0'), out);
   const cache = JSON.parse(fs.readFileSync(path.join(stateDir, 'cache.json'), 'utf8'));
-  assert.equal(cache.house.mode, 'PV_1');
+  assert.equal(cache.house.mode, 'PV');
   assert.equal(cache.house.level, 1);
 });
 

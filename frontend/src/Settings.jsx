@@ -8,16 +8,21 @@ const HOUSE_FIELDS = [
     { k: 'evening_start', l: 'Abend ab', type: 'time' },
     { k: 'night_start', l: 'Nacht ab', type: 'time' },
   ] },
-  { group: 'PV-Überschuss (Stufen)', fields: [
-    { k: 'surplus_on_w', l: 'Stufe 1 ein ab Überschuss', unit: 'W', step: 100 },
-    { k: 'stage_up_w', l: 'Nächste Stufe, wenn noch übrig', unit: 'W', step: 100 },
-    { k: 'surplus_off_w', l: 'Stufe zurück, wenn weniger übrig', unit: 'W', step: 100 },
+  { group: 'Mit PV-Überschuss (Modell a)', fields: [
+    { k: 'surplus_on_w', l: 'Überschuss-Heizen ein ab', unit: 'W', step: 100 },
+    { k: 'stage_up_w', l: 'Je so viel übrig: ein Raum mehr', unit: 'W', step: 100 },
+    { k: 'surplus_off_w', l: 'Ein Raum weniger, wenn weniger übrig', unit: 'W', step: 100 },
     { k: 'pv_min_soc', l: 'Batterieladung zählt ab', unit: '% SoC', step: 5 },
-    { k: 'hold_minutes', l: 'Mindestdauer je Stufe', unit: 'min', step: 5 },
+    { k: 'hold_minutes', l: 'Mindestdauer je Änderung', unit: 'min', step: 5 },
     { k: 'average_minutes', l: 'Glättung der Messwerte', unit: 'min', step: 1 },
   ] },
+  { group: 'Ohne PV-Überschuss (Modell b)', fields: [
+    { k: 'max_grid_circuits', l: 'Netzgrenze: Kreise gleichzeitig', unit: 'Kreise', step: 1 },
+    { k: 'wait_min_kwh', l: 'Wartetag ab erwartetem Überschuss (0 = nie)', unit: 'kWh', step: 1 },
+    { k: 'wait_boost_min', l: 'Wer so lange wartet, ist zuerst dran', unit: 'min', step: 15 },
+  ] },
   { group: 'Batterie', fields: [
-    { k: 'reserve_soc', l: 'Abends heizen nur ab Akku', unit: '% SoC', step: 5 },
+    { k: 'battery_kwh', l: 'Akku-Kapazität', unit: 'kWh', step: 1 },
     { k: 'full_soc', l: '„Voll“ ab', unit: '% SoC', step: 1 },
     { k: 'full_export_w', l: 'und Einspeisung ab', unit: 'W', step: 500 },
   ] },
@@ -27,7 +32,7 @@ const HOUSE_FIELDS = [
 ];
 
 const ROOM_FIELDS = [
-  { k: 'temp_night', l: 'Absenk (Nacht / nicht heizen)' },
+  { k: 'temp_night', l: 'Untergrenze (nachts, abends, Wartetag)' },
   { k: 'temp_normal', l: 'Normal' },
   { k: 'temp_pv', l: 'PV-Laden' },
   { k: 'temp_full', l: 'Batterie voll' },
@@ -50,10 +55,10 @@ function Field({ f, value, onChange }) {
   );
 }
 
+// Abends gilt seit 0.11 dasselbe wie nachts (Untergrenze) – deshalb nur noch morgens und tagsüber.
 const PLAN_FLAGS = [
   { k: 'heat_morning', l: 'Morgens', from: 'morning_start', to: 'morning_end' },
   { k: 'heat_day', l: 'Tagsüber', from: 'morning_end', to: 'evening_start' },
-  { k: 'heat_evening', l: 'Abends', from: 'evening_start', to: 'night_start' },
 ];
 
 const deg = (v) => (v == null ? '–' : `${Number(v).toLocaleString('de-DE', { maximumFractionDigits: 1 })} °C`);
@@ -75,8 +80,8 @@ function Heizplan({ rooms, settings, reload, setMsg }) {
     return !o;
   });
   const count = (k) => plan.filter((r) => r[k]).length;
-  const prio1 = plan.filter((r) => r.pv_prio === 1).length;
-  const summary = `${plan.length} Räume · morgens ${count('heat_morning')} · tagsüber ${count('heat_day')} · abends ${count('heat_evening')} · PV Prio 1: ${prio1}`;
+  const pv = plan.filter((r) => r.pv_prio > 0).length;
+  const summary = `${plan.length} Räume · morgens ${count('heat_morning')} · tagsüber ${count('heat_day')} · mit PV laden ${pv}`;
   const set = (id, k, v) => { setPlan((p) => p.map((r) => (r.id === id ? { ...r, [k]: v } : r))); setDirty(true); };
 
   const save = async () => {
@@ -106,11 +111,12 @@ function Heizplan({ rooms, settings, reload, setMsg }) {
         Wärme bekommen – über die Sollwerte der Loxone-Raumregler. Wann geheizt wird, ist erst steuerbar, wenn die Wärmepumpe am LAN hängt.
       </div>
       <div className="muted small plan-help">
-        <strong>Haken</strong> = in dieser Tageszeit <strong>Normal</strong>, ohne Haken <strong>Absenk</strong>. Die Zahl zeigt den Sollwert, den der Raum dann bekommt.
-        Abends nur, wenn der Akku ≥ {settings.reserve_soc ?? 60} % ist. Nachts ({hh(settings.night_start)}–{hh(settings.morning_start)} Uhr) sind alle Räume auf Absenk.
-        <strong> Mit Sonne</strong>: Bei PV-Überschuss bekommt der Raum ab der gewählten Stufe seinen PV-Wert
-        (Stufe 1 ab {((settings.surplus_on_w ?? 1500) / 1000).toLocaleString('de-DE')} kW, die nächste Stufe, wenn trotz Heizung noch genug übrig ist).
-        Es gilt immer der <strong>höhere</strong> Wert. Die Temperaturen selbst stellst du unten je Raum ein.
+        <strong>Haken</strong> = an einem Tag <strong>ohne PV-Überschuss</strong> in dieser Tageszeit auf <strong>Normal</strong>, nach Priorität,
+        höchstens {settings.max_grid_circuits ?? 6} Kreise gleichzeitig (Netzgrenze). Ohne Haken hält der Raum seine <strong>Untergrenze</strong>.
+        Abends ({hh(settings.evening_start)}–{hh(settings.night_start)} Uhr) und nachts gilt für alle Räume die Untergrenze, ebenso an einem
+        <strong> Wartetag</strong> (laut Prognose kommt heute noch Überschuss).
+        <strong> Mit Sonne</strong>: Bei PV-Überschuss werden die Räume nach Priorität auf ihren PV-Wert geheizt – so viele, wie der Überschuss trägt.
+        Die Temperaturen stellst du unten je Raum ein.
       </div>
       <div className="plan-wrap">
         <table className="plan-table">
@@ -120,7 +126,7 @@ function Heizplan({ rooms, settings, reload, setMsg }) {
               {PLAN_FLAGS.map((f) => (
                 <th key={f.k}>{f.l}<div className="plan-time">{hh(settings[f.from])}–{hh(settings[f.to])} Uhr</div></th>
               ))}
-              <th className="hide-sm">Mit Sonne<div className="plan-time">PV-Stufe</div></th>
+              <th className="hide-sm">Mit Sonne<div className="plan-time">PV-Wert laden</div></th>
             </tr>
           </thead>
           <tbody>
@@ -128,8 +134,9 @@ function Heizplan({ rooms, settings, reload, setMsg }) {
               const t = temps[r.id] || {};
               const sun = (room, tt) => (
                 <>
-                  <select value={room.pv_prio} onChange={(e) => set(room.id, 'pv_prio', Number(e.target.value))} aria-label={`${room.name} PV-Stufe`}>
-                    {[1, 2, 3, 0].map((p) => <option key={p} value={p}>{p === 0 ? 'nie' : `ab Stufe ${p}`}</option>)}
+                  <select value={room.pv_prio > 0 ? 1 : 0} onChange={(e) => set(room.id, 'pv_prio', Number(e.target.value) > 0 ? Math.max(1, room.pv_prio || 1) : 0)} aria-label={`${room.name} mit PV laden`}>
+                    <option value={1}>ja</option>
+                    <option value={0}>nie</option>
                   </select>
                   <div className="plan-t on sun">{room.pv_prio > 0 ? <>{deg(tt.temp_pv)} · voll {deg(tt.temp_full)}</> : 'kein PV'}</div>
                 </>
@@ -159,10 +166,10 @@ function Heizplan({ rooms, settings, reload, setMsg }) {
 }
 
 
-// Raum-Prioritäten (ab 0.10): Prio 1, 2, 3, 4 – mehrere Räume je Prio (Spalte muc_rooms.priority).
-// Prio 1 wird zuerst geheizt, dann Prio 2 … Innerhalb einer Prio heizen höchstens „Gleichzeitig heizen“
-// Räume auf einmal, zuerst der, der am schnellsten fertig ist. Wer nicht dran ist, wartet bei der
-// Temperatur, die er gerade hat (Ventil zu). Jeder Heizlauf wird gemessen.
+// Raum-Prioritäten (ab 0.11 eine Priorität für beide Modelle): Prio 1, 2, 3, 4 – mehrere Räume je Prio
+// (Spalte muc_rooms.priority). Mit Überschuss bekommen so viele Räume ihren PV-Wert, wie der Überschuss trägt,
+// ohne Überschuss höchstens so viele wie die Netzgrenze – jeweils Prio 1 zuerst. Wer keinen Kreis bekommt,
+// wartet mit Ventil zu. Jeder Heizlauf wird gemessen.
 const PRIOS = [1, 2, 3, 4];
 
 function Reihenfolge({ data, settings, reload, setMsg }) {
@@ -202,20 +209,11 @@ function Reihenfolge({ data, settings, reload, setMsg }) {
     await reload();
     setBusy(false);
   };
-  const saveSetting = async (patch, text) => {
-    setBusy(true);
-    const { error } = await supabase.from('muc_settings').update(patch).eq('id', 1);
-    setMsg(error ? { err: true, t: error.message } : { t: text });
-    await reload();
-    setBusy(false);
-  };
 
-  const on = !!settings.sequence_enabled;
-  const maxRooms = settings.seq_max_rooms ?? 1;
   const live = data.latestByRoom || {};
   const num = (v) => (v == null ? '–' : `${Number(v).toLocaleString('de-DE', { maximumFractionDigits: 1 })} °C`);
   const dur = (min) => (min < 60 ? `${Math.round(min)} min` : `${Math.floor(min / 60)} h ${String(Math.round(min % 60)).padStart(2, '0')} min`);
-  const summary = on ? PRIOS.map((p) => `Prio ${p}: ${rooms.filter((r) => prio[r.id] === p).length}`).join(' · ') : 'Aus – alle Räume gleichzeitig';
+  const summary = PRIOS.map((p) => `Prio ${p}: ${rooms.filter((r) => prio[r.id] === p).length}`).join(' · ');
   return (
     <section className="card">
       <button type="button" className="collapse-head" onClick={toggle} aria-expanded={open}>
@@ -224,26 +222,12 @@ function Reihenfolge({ data, settings, reload, setMsg }) {
         <span className={`collapse-chev ${open ? 'open' : ''}`} aria-hidden="true">▶</span>
       </button>
       {open && <>
-      <div className="switch-row">
-        <div>
-          <div><strong>Nach Priorität heizen</strong></div>
-          <div className="muted small">
-            Prio 1 wird zuerst geheizt, dann Prio 2, 3, 4. Wer nicht dran ist, wartet bei der Temperatur, die er gerade hat (Ventil zu).
-            Ist ein Raum bis auf {String(settings.seq_on_delta ?? 0.3).replace('.', ',')} °C am Sollwert, kommt der nächste; fertige Räume halten ihren Sollwert.
-            Jeder Heizlauf wird gemessen – so lernt die App, wie lange jeder Raum für 1 °C braucht.
-          </div>
-        </div>
-        <button className={`toggle ${on ? 'on' : ''}`} disabled={busy} onClick={() => saveSetting({ sequence_enabled: !on }, on ? 'Priorität aus – alle Räume heizen gleichzeitig.' : 'Heizen nach Priorität an.')}>{on ? 'An' : 'Aus'}</button>
-      </div>
-      <div className="switch-row">
-        <div>
-          <div><strong>Gleichzeitig heizen</strong></div>
-          <div className="muted small">Wie viele Räume einer Prio auf einmal Wärme bekommen. Mit 1 misst die App jeden Raum für sich am genauesten.</div>
-        </div>
-        <select value={maxRooms} disabled={busy} onChange={(e) => { const v = Number(e.target.value); saveSetting({ seq_max_rooms: v }, v === 0 ? 'Alle Räume einer Prio heizen gemeinsam.' : `Höchstens ${v} ${v === 1 ? 'Raum' : 'Räume'} gleichzeitig.`); }} aria-label="Räume gleichzeitig">
-          {[1, 2, 3, 4].map((k) => <option key={k} value={k}>{k} {k === 1 ? 'Raum' : 'Räume'}</option>)}
-          <option value={0}>ganze Prio</option>
-        </select>
+      <div className="muted small plan-help">
+        Gilt mit und ohne Sonne. <strong>Mit PV-Überschuss</strong> bekommen so viele Räume ihren PV-Wert, wie der Überschuss trägt –
+        Prio 1 zuerst, alle Räume einer Prio gemeinsam, die nächste Prio, sobald genug übrig ist.
+        <strong> Ohne Überschuss</strong> heizen höchstens {settings.max_grid_circuits ?? 6} Kreise gleichzeitig (Netzgrenze), ebenfalls Prio 1 zuerst.
+        Wer keinen Kreis bekommt, wartet mit Ventil zu; wer länger als {settings.wait_boost_min ?? 60} min wartet, ist zuerst dran.
+        Räume unter ihrer Untergrenze gehen immer vor.
       </div>
       {data.status?.sequence_info && <div className="notice small">Jetzt: {data.status.sequence_info}</div>}
       {PRIOS.map((p) => {

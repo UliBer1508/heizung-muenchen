@@ -11,10 +11,10 @@ import { readOutdoorTemp, readEvccChargePower } from './extras.js';
 import { readFemsForecast } from './fems-rest.js';
 import {
   DEFAULT_SETTINGS, averageEnergy, phaseAt, desiredPvLevel, holdPvLevel, houseModeOf, roomTarget, needsWrite, surplusW,
-  shouldCaptureDayContext, applyHeatSequence, trackHeatRuns,
+  shouldCaptureDayContext, allocateRooms, trackHeatRuns, dayModeOf, PV_FULL,
 } from './logic.js';
 
-const VERSION = '0.10.0';
+const VERSION = '0.11.0';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const stateDir = process.env.STATE_DIR || path.join(here, '..', 'state');
 const cacheFile = path.join(stateDir, 'cache.json');
@@ -141,28 +141,35 @@ async function tick() {
   const energy = averageEnergy(buffer, now, settings.average_minutes);
   const latest = feneconOk ? buffer[buffer.length - 1] : null;
 
-  // 2) Tagesphase + PV-Stufe
+  // 2) Tagesphase, Tagesmodus (Konzept 09.11.2026) und Überschuss (Modell a)
   const phase = phaseAt(now, settings);
-  const desired = desiredPvLevel({ energy, phase, settings, currentLevel: house?.level ?? 0 });
+  const dm = dayModeOf({ phase, energy, forecast: cache.forecast, settings, now });
+  const nPvRooms = cache.rooms.filter((r) => r.pv_prio == null || Number(r.pv_prio) > 0).length;
+  // Stufen bis 0.10 (1–3, 4 = voll) sind keine Raumzahlen mehr → neu beginnen
+  const prevLevel = house && (house.version === VERSION) ? house.level : 0;
+  const desired = desiredPvLevel({ energy, phase, settings, currentLevel: prevLevel, nRooms: nPvRooms });
   const held = holdPvLevel({
-    desired, current: house ? { level: house.level, since: house.levelSince } : null, now, settings,
+    desired, current: house && house.version === VERSION ? { level: house.level, since: house.levelSince } : null, now, settings,
   });
-  const mode = houseModeOf(phase, held.level);
+  const mode = houseModeOf(phase, held.level, dm.mode);
+  const houseReason = held.level > 0 ? held.reason : dm.reason;
   const modeChanged = !house || house.mode !== mode;
   if (modeChanged) {
-    log(`Modus: ${house?.mode ?? '–'} → ${mode} (${held.reason})`);
+    log(`Modus: ${house?.mode ?? '–'} → ${mode} (${houseReason})`);
     await safeDb('decision', () => db.insert('muc_decisions', [{
-      kind: 'mode', mode, reason: held.reason, dry_run: dryRun,
+      kind: 'mode', mode, reason: houseReason, dry_run: dryRun,
     }]));
   }
   house = {
+    version: VERSION,
     mode,
     phase,
+    dayMode: dm.mode,
     level: held.level,
     levelSince: held.since,
     since: modeChanged ? now : house.since,
-    reason: held.reason,
-    pending: held.pending != null ? houseModeOf(phase, held.pending) : null,
+    reason: houseReason,
+    pending: held.pending != null ? houseModeOf(phase, held.pending, dm.mode) : null,
   };
   if (!profileColsWarned && cache.rooms.length && cache.rooms[0].pv_prio === undefined) {
     log('Hinweis: Raumprofile fehlen – supabase/migration-005-raumprofile.sql ausführen (bis dahin heizen alle Räume wie bisher)');
@@ -179,23 +186,24 @@ async function tick() {
       loxoneOk = false;
       errors.push(...state.errors.map((m) => `${room.name}: ${m}`));
     }
-    const t = roomTarget({ room, phase, level: house.level, soc: energy?.soc ?? null, now, settings });
+    const t = roomTarget({ room, phase, dayMode: dm.mode, now });
     items.push({ room, state, temp: state.temp, t });
   }
 
-  // … dann die Heiz-Reihenfolge anwenden (ab 0.7) …
-  const seq = applyHeatSequence({
-    items, settings, now,
-    reached: new Set(cache.seq?.reached || []),
-    turn: cache.seq?.turn?.since ? { ...cache.seq.turn, since: new Date(cache.seq.turn.since) } : null,
-    waits: cache.seq?.waits || {},
+  // … dann auf die Kreise verteilen: Untergrenze, Überschuss (a), Netzgrenze (b) …
+  const seq = allocateRooms({
+    items, settings, now, dayMode: dm.mode, level: house.level,
+    reached: new Set(cache.alloc?.reached || []),
+    waitSince: cache.alloc?.waitSince || {},
+    active: new Set(cache.alloc?.active || []),
     rates: heatRates,
   });
+  const reachedIds = new Set([...seq.reached].map((k) => String(k).split('@')[0]));
 
   // Aufheiz-Messung: wie schnell wird ein Raum warm, während er heizen darf?
   const heatW = energy?.consumptionW != null ? Math.max(0, energy.consumptionW - (lastCarW || 0) - 400) : null;
   const tracked = trackHeatRuns(cache.seq?.runs || {}, {
-    now, items: seq.items, active: new Set(seq.active), reached: seq.reached, heatW, outdoorC: outdoor.temp,
+    now, items: seq.items, active: new Set(seq.active), reached: reachedIds, heatW, outdoorC: outdoor.temp,
   });
   if (tracked.finished.length) {
     for (const f of tracked.finished) {
@@ -204,14 +212,15 @@ async function tick() {
     }
     await safeDb('heat_runs', () => db.insert('muc_heat_runs', tracked.finished));
   }
-  const seqKey = `${seq.activeRank ?? '-'}|${[...seq.active].sort().join(',')}`;
-  if (seq.reason && cache.seq?.key !== seqKey) {
+  const seqKey = `${dm.mode}|${house.level}|${[...seq.active].sort().join(',')}`;
+  if (seq.reason && cache.alloc?.key !== seqKey) {
     log(seq.reason);
     await safeDb('decision', () => db.insert('muc_decisions', [{
       kind: 'sequence', mode: house.mode, reason: seq.reason, dry_run: dryRun,
     }]));
   }
-  cache.seq = { reached: [...seq.reached], turn: seq.turn, waits: seq.waits, runs: tracked.runs, key: seqKey, reason: seq.reason };
+  cache.alloc = { reached: [...seq.reached], waitSince: seq.waitSince, active: seq.active, key: seqKey, reason: seq.reason };
+  cache.seq = { runs: tracked.runs };
 
   // … und schreiben.
   for (const { room, state, t } of seq.items) {
@@ -264,6 +273,7 @@ async function tick() {
       try {
         const { row, raw } = await readFemsForecast(cfg.femsRest);
         if (row.outdoor_c != null) { outdoor.temp = row.outdoor_c; outdoor.source = 'fems'; got = true; }
+        cache.forecast = { at: now.toISOString(), pv_1h: row.pv_1h, pv_3h: row.pv_3h, pv_6h: row.pv_6h, pv_12h: row.pv_12h };
         if (femsWarned) log('FEMS-Wetter wieder verfügbar');
         femsWarned = false;
         await safeDb('forecast', async () => {
@@ -346,6 +356,7 @@ async function tick() {
     mode_reason: house.reason,
     pending_mode: house.pending,
     sequence_info: seq.reason,
+    day_mode: dm.mode,
     dry_run: dryRun,
     fenecon_ok: feneconOk,
     loxone_ok: loxoneOk,

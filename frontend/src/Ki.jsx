@@ -5,7 +5,7 @@ import { supabase } from './supabase.js';
 import { fmtDateTime, fmtT, fmtTime } from './lib.js';
 
 const num = (v, d = 1) => (v == null ? '–' : Number(v).toLocaleString('de-DE', { minimumFractionDigits: d, maximumFractionDigits: d }));
-const PARAM = { temp_night: 'Absenk', temp_pv: 'PV-Laden' };
+const PARAM = { temp_night: 'Untergrenze', temp_pv: 'PV-Laden' };
 const STATUS = {
   genehmigt: { label: 'Übernommen', tone: 'green' },
   geaendert: { label: 'Mit eigenem Wert übernommen', tone: 'green' },

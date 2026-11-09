@@ -298,3 +298,27 @@ Prio 1 wird zuerst geheizt, dann Prio 2 … Innerhalb einer Prio heizen höchste
    Startwerte: Prio 1 = OG Luis Bad, OG Luis Schlafzimmer, OG Eltern Bad, OG Eltern Schlafzimmer · Prio 4 = KG Bad · übrige Prio 2.
 2. Mini-PC: `git pull` → `C:\nssm\nssm.exe restart HeizungMuenchen` → Log „Collector 0.10.0 startet“
    (nur Texte geändert – 0.9.0 rechnet mit den Gruppen bereits richtig).
+
+---
+
+## 15. Update: Heizen mit und ohne PV-Überschuss (Collector 0.11.0)
+
+Konzept: `doc/KONZEPT-TAGESMODI-2026-11-09.md` (freigegeben 09.11.2026). Tagesmodi wie in Venediger:
+
+- **Mit Überschuss (Modell a):** Räume nach Priorität auf ihren PV-Wert – so viele, wie der Überschuss trägt
+  (ein ab 1,5 kW, je 1 kW übrig ein Raum mehr, unter 300 W ein Raum weniger).
+- **Ohne Überschuss (Modell b):** Räume mit Haken *morgens/tagsüber* auf Normal, nach Priorität, höchstens **6 Kreise** gleichzeitig.
+- **Wartetag:** Kommt laut FEMS-Prognose heute noch ≥ 5 kWh Überschuss, halten die Räume nur ihre Untergrenze.
+- **Abend und Nacht:** nur Untergrenze. Der bisherige **Absenkwert ist jetzt die Untergrenze** – je Raum in den Einstellungen.
+- Wer keinen Kreis bekommt, wartet mit Ventil zu (Soll = Ist − 0,5 °C). Nach 60 min Warten ist er zuerst dran.
+
+1. Supabase: `supabase/migration-012-tagesmodi.sql` (am 09.11.2026 bereits ausgeführt).
+2. Mini-PC:
+   ```powershell
+   cd C:\Users\ulibe\heizung-muenchen
+   git pull
+   C:\nssm\nssm.exe restart HeizungMuenchen
+   ```
+   Im Log: „Collector 0.11.0 startet“, dann z. B. „Netzgrenze 6 Kreise: es heizen 6 – …“.
+3. App (Vercel baut automatisch): Einstellungen → je Raum **Untergrenze** prüfen, Haus → *Ohne PV-Überschuss*.
+4. Alexa (optional, nur Texte): Supabase → Edge Functions → `alexa-heizung` → Code ersetzen → Deploy.
