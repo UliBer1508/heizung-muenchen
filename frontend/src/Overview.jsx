@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { supabase } from './supabase.js';
 import { fmtW, fmtT, fmtTime, minutesAgo, modeMeta, weatherText, clockIn, profileText } from './lib.js';
 import EnergyFlow from './EnergyFlow.jsx';
+import HeatingNow from './HeatingNow.jsx';
 
 function StatusBar({ status, settings }) {
   const age = minutesAgo(status?.last_seen);
@@ -252,6 +253,7 @@ export default function Overview({ data, reload }) {
         <ModeHero status={data.status} />
         <Energy e={data.energy} />
       </div>
+      <HeatingNow data={data} />
       <EnergyFlow energy={data.energy} />
       <Forecast f={data.forecast} />
       <div className="rooms">
