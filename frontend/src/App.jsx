@@ -6,8 +6,10 @@ import Settings from './Settings.jsx';
 import Log from './Log.jsx';
 import SystemStatusButton from './SystemStatus.jsx';
 import Ki, { useKiOpen } from './Ki.jsx';
+import AutoSteuerung from './auto/AutoSteuerung.jsx';
 
 const ICONS = {
+  auto: <path d="M4 4v15h16M7 15l4-5 3 3 5-6" />,
   overview: <path d="M3 11.5 12 4l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" />,
   analyse: <path d="M4 19h16M6 16l4-5 3 3 5-7" />,
   ki: <path d="M12 3l1.8 4.6L18.5 9.5l-4.7 1.9L12 16l-1.8-4.6L5.5 9.5l4.7-1.9zM19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z" />,
@@ -15,7 +17,9 @@ const ICONS = {
   settings: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></>,
 };
 
+// Auto-Steuerung zuerst, wie in Heizung Venediger (12.11.2026)
 const TABS = [
+  { id: 'auto', label: 'Auto-Steuerung', kurz: 'Auto' },
   { id: 'overview', label: 'Übersicht' },
   { id: 'analyse', label: 'Analyse' },
   { id: 'ki', label: 'KI' },
@@ -108,7 +112,8 @@ export function useLiveData(intervalMs = 30000) {
 }
 
 function Shell({ session }) {
-  const [tab, setTab] = useState('overview');
+  const [tab, setTab] = useState('auto');
+  const gehZu = (t) => { setTab(t); window.scrollTo(0, 0); };
   const live = useLiveData();
   const ki = useKiOpen();
   const kiCount = ki.suggestions + ki.hints.length;
@@ -124,7 +129,7 @@ function Shell({ session }) {
             <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? 'tab active' : 'tab'}
               onClick={() => { setTab(t.id); window.scrollTo(0, 0); }}>
               <TabIcon id={t.id} />
-              <span>{t.label}{t.id === 'ki' && kiCount > 0 && <b className={ki.hints.length ? 'badge rose' : 'badge'}>{kiCount}</b>}</span>
+              <span>{t.kurz ? <><span className="tab-lang">{t.label}</span><span className="tab-kurz">{t.kurz}</span></> : t.label}{t.id === 'ki' && kiCount > 0 && <b className={ki.hints.length ? 'badge rose' : 'badge'}>{kiCount}</b>}</span>
             </button>
           ))}
         </nav>
@@ -142,6 +147,7 @@ function Shell({ session }) {
             <strong>KI-Hinweis:</strong> {ki.hints.map((h) => h.title).join(' · ')} <span className="ki-banner-go">ansehen ›</span>
           </button>
         )}
+        {live.data && tab === 'auto' && <AutoSteuerung data={live.data} reload={live.reload} kiOffen={ki.suggestions} onNavigate={gehZu} />}
         {live.data && tab === 'overview' && <Overview data={live.data} reload={live.reload} />}
         {live.data && tab === 'analyse' && <Analyse settings={live.data.settings} rooms={live.data.rooms} />}
         {live.data && tab === 'ki' && <Ki rooms={live.data.rooms} onChanged={() => { ki.reload(); live.reload(); }} />}

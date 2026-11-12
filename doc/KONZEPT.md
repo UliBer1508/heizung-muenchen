@@ -2,6 +2,25 @@
 
 Stand: 27.10.2026 · Version 0.6 (alle 15 Räume). Ursprünglich Pilot 0.1 mit KG Bad – Projektstand und Roadmap in [`STAND-UND-ROADMAP.md`](STAND-UND-ROADMAP.md).
 
+## Grundregel: Venediger übernehmen, nicht neu entwickeln (Uli, 12.11.2026)
+
+München steuert nach demselben Prinzip wie Heizung Venediger: Solltemperatur je Raum, Estrich als Speicher,
+bei PV-Überschuss aufheizen bzw. überheizen, ohne PV so wenig Netzstrom wie möglich. Unterschied ist nur der
+Aktor (Loxone-Ventil + Wärmepumpe statt elektrischer Bodenheizung) – für Planer und Auswertung ist das ein
+Parameter je Raum (Strom je Stunde Heizen), kein anderes Konzept.
+
+- Alles, was Venediger schon hat, wird **übernommen** (Logik, Planer `heizplaner`/`modell.ts`, Ansichten wie
+  Auto-Steuerung, Verlauf und Wirkung, KI-Vorschläge) – nicht für München neu geschrieben.
+- **Jedes System läuft eigenständig:** Alles für München liegt im Repo `heizung-muenchen` und wird von hier deployt
+  (eigene Edge Functions, eigene `muc_*`-Tabellen). Venediger wird dafür nicht geändert.
+- Braucht München eine Datei aus Venediger (z. B. `supabase/functions/heizplaner/modell.ts`), wird sie **ins
+  München-Repo kopiert**, mit Herkunft (Repo, Pfad, Commit) im Dateikopf. Geändert wird die Kopie nur, wo München
+  es wirklich braucht.
+- Nur was es in München wirklich anders gibt (Wärmepumpe mit eigenem Zeitprogramm, Warmwasser, evcc), wird ergänzt.
+- Bestehende Münchner Teile bleiben, wie sie sind, wenn Uli es so will: Die **Analyse bleibt unverändert**, die
+  Auto-Steuerung kommt als eigener Menüpunkt dazu (Uli, 12.11.2026). Erste Übernahme nach dieser Regel:
+  [`AUTO-STEUERUNG-2026-11-12.md`](AUTO-STEUERUNG-2026-11-12.md).
+
 ## Ziel
 
 PV-Überschuss und Batterie der FENECON-Anlage (10 kWp, 10 kWh) so nutzen, dass die

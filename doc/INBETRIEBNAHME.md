@@ -340,3 +340,24 @@ Wie in Heizung Venediger (Auto-Steuerung › Verlauf), angepasst an die Münchne
    (gültig ab, Arbeitspreis brutto ct/kWh, Grundpreis brutto €/Jahr inkl. Messentgelt, Einspeisevergütung).
 3. Collector: keine Änderung.
 
+
+## 16. Update: Auto-Steuerung wie in Venediger (Collector 0.12.0, 12.11.2026)
+
+Beschreibung: `doc/AUTO-STEUERUNG-2026-11-12.md`. Neuer erster Tab **Auto-Steuerung** (Verlauf und Wirkung, Steuerung, Plan).
+Der Planer läuft im **Schattenbetrieb** – er steuert nichts. Die Analyse bleibt unverändert.
+
+1. Supabase › SQL-Editor: `supabase/migration-014-auto-steuerung.sql` ausführen. Am Ende stehen die letzten 5 Tage
+   aus `muc_energie_tag` (Nachtragen ab dem ältesten Messwert, dauert einige Sekunden).
+2. GitHub › `heizung-muenchen` › Settings › Secrets and variables › Actions › **New repository secret**:
+   `SUPABASE_ACCESS_TOKEN` (derselbe Token wie im Venediger-Repo, oder neu unter supabase.com › Account › Access Tokens).
+   Danach Actions › „Edge Functions deployen“ › **Run workflow** › Feld `heizplaner-muenchen`.
+   (Später deployt jeder Push auf `main`, der eine Funktion ändert, automatisch.)
+3. Mini-PC:
+   ```powershell
+   cd C:\Users\ulibe\heizung-muenchen
+   git pull
+   C:\nssm\nssm.exe restart HeizungMuenchen
+   ```
+   Im Log: „Collector 0.12.0 startet“. Fehlt die Edge Function, steht dort einmal ein Hinweis auf diesen Abschnitt.
+4. App (Vercel baut automatisch): Auto-Steuerung › Plan zeigt nach spätestens 15 min den ersten Plan.
+   Das Raummodell und die Gegenrechnung kommen nach der ersten Nacht (03:00).

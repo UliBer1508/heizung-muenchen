@@ -12,6 +12,7 @@ Seit 0.6 entsteht ein Tagesprotokoll (Prognose am Morgen + Einstellungen + Ergeb
 | Datenbank | `supabase/schema.sql` + `migration-002` … `-007` (der Reihe nach) – Tabellen `muc_*` im Venediger-Supabase-Projekt |
 | Alexa | `supabase/functions/alexa-heizung/` + `alexa/` – Skill „Meine Heizung“ für München **und** Venediger, Anleitung `doc/ALEXA.md` |
 | KI | `supabase/migration-007-ki.sql` + App-Tab **KI** – Raummodell, tägliche Vorschläge zum Genehmigen, Sofort-Hinweise; Beschreibung `doc/KI.md` |
+| Auto-Steuerung | `supabase/migration-014-auto-steuerung.sql` + Edge Function `supabase/functions/heizplaner-muenchen/` + App-Tab **Auto-Steuerung** – Verlauf und Wirkung, Steuerung, Plan (Schattenbetrieb), aus Venediger übernommen; `doc/AUTO-STEUERUNG-2026-11-12.md` |
 | Doku | `doc/STAND-UND-ROADMAP.md` (Stand, offene Phasen, Empfehlungen), `doc/KONZEPT.md` (Wie & Warum), `doc/INBETRIEBNAHME.md` (Schritt für Schritt), `doc/ALEXA.md` (Sprachsteuerung) |
 
 ## Kurz
