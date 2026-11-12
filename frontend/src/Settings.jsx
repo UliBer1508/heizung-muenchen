@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from './supabase.js';
+import { Klappkarte } from './Klapp.jsx';
 
 const HOUSE_FIELDS = [
   { group: 'Tagesablauf', fields: [
@@ -264,6 +265,67 @@ function Reihenfolge({ data, settings, reload, setMsg }) {
   );
 }
 
+// Strompreis (12.11.2026, migration-013): Grundlage der Netzkosten in Analyse › Woche/Monat/Jahr.
+// Jede Zeile gilt ab ihrem Datum bis zur nächsten. Werte brutto von der Stromrechnung.
+function Strompreis({ setMsg }) {
+  const [rows, setRows] = useState(null);
+  const [err, setErr] = useState(null);
+  const [neu, setNeu] = useState({ valid_from: '', grid_ct: '', base_eur_year: '', feed_ct: '', note: '' });
+  const [busy, setBusy] = useState(false);
+  const load = async () => {
+    const { data, error } = await supabase.from('muc_prices').select('*').order('valid_from', { ascending: false });
+    setErr(error?.message ?? null); setRows(data || []);
+  };
+  useEffect(() => { load(); }, []);
+  const zahl = (v) => (v === '' || v == null ? null : Number(String(v).replace(',', '.')));
+  const speichern = async () => {
+    const z = { valid_from: neu.valid_from, grid_ct: zahl(neu.grid_ct), base_eur_year: zahl(neu.base_eur_year) ?? 0, feed_ct: zahl(neu.feed_ct) ?? 0, note: neu.note || null };
+    if (!z.valid_from || z.grid_ct == null || !(z.grid_ct > 0 && z.grid_ct < 200)) { setMsg({ err: true, t: 'Bitte „gültig ab“ und einen Arbeitspreis zwischen 0 und 200 ct/kWh eingeben.' }); return; }
+    setBusy(true);
+    const { error } = await supabase.from('muc_prices').upsert(z, { onConflict: 'valid_from' });
+    setMsg(error ? { err: true, t: error.message } : { t: `Strompreis ab ${z.valid_from} gespeichert.` });
+    if (!error) setNeu({ valid_from: '', grid_ct: '', base_eur_year: '', feed_ct: '', note: '' });
+    await load(); setBusy(false);
+  };
+  const loeschen = async (r) => {
+    if (!window.confirm(`Strompreis ab ${r.valid_from} löschen?`)) return;
+    const { error } = await supabase.from('muc_prices').delete().eq('id', r.id);
+    if (error) setMsg({ err: true, t: error.message });
+    await load();
+  };
+  const fmt = (v, d = 2) => (v == null ? '–' : Number(v).toLocaleString('de-DE', { minimumFractionDigits: d, maximumFractionDigits: 4 }));
+  const aktuell = rows?.[0];
+  return (
+    <Klappkarte id="einstellungen-strompreis" titel="Strompreis" sub="für die Netzkosten in der Analyse"
+      sum={aktuell ? `ab ${aktuell.valid_from}: ${fmt(aktuell.grid_ct)} ct/kWh` : 'noch kein Preis'} standardAuf={false}>
+      {err && /muc_prices/.test(err) ? (
+        <div className="alert">Bitte zuerst <strong>supabase/migration-013-strompreis.sql</strong> in Supabase ausführen.</div>
+      ) : (
+        <>
+          <p className="muted small">Werte brutto (inkl. USt.) von der Stromrechnung. Arbeitspreis = alles, was je bezogener kWh anfällt (Energie, Netz, Abgaben). Grundpreis = Grund- und Messentgelte je Jahr. Ein Preis gilt ab seinem Datum bis zum nächsten.</p>
+          {rows && rows.length > 0 && (
+            <table className="ptable">
+              <thead><tr><th>gültig ab</th><th>Arbeitspreis</th><th>Grundpreis</th><th>Einspeisung</th><th>Notiz</th><th></th></tr></thead>
+              <tbody>{rows.map((r) => (
+                <tr key={r.id}><td>{r.valid_from}</td><td>{fmt(r.grid_ct)} ct/kWh</td><td>{fmt(r.base_eur_year)} €/Jahr</td><td>{fmt(r.feed_ct)} ct/kWh</td><td className="muted small">{r.note || ''}</td>
+                  <td><button className="btn ghost small" onClick={() => loeschen(r)}>Löschen</button></td></tr>
+              ))}</tbody>
+            </table>
+          )}
+          <div className="fields">
+            <label className="field"><span>gültig ab</span><span className="field-input"><input type="date" value={neu.valid_from} onChange={(e) => setNeu({ ...neu, valid_from: e.target.value })} /></span></label>
+            <label className="field"><span>Arbeitspreis brutto (ct/kWh)</span><span className="field-input"><input inputMode="decimal" value={neu.grid_ct} onChange={(e) => setNeu({ ...neu, grid_ct: e.target.value })} /></span></label>
+            <label className="field"><span>Grundpreis brutto (€/Jahr)</span><span className="field-input"><input inputMode="decimal" value={neu.base_eur_year} onChange={(e) => setNeu({ ...neu, base_eur_year: e.target.value })} /></span></label>
+            <label className="field"><span>Einspeisevergütung (ct/kWh)</span><span className="field-input"><input inputMode="decimal" value={neu.feed_ct} onChange={(e) => setNeu({ ...neu, feed_ct: e.target.value })} /></span></label>
+            <label className="field"><span>Notiz (z. B. Tarif)</span><span className="field-input"><input value={neu.note} onChange={(e) => setNeu({ ...neu, note: e.target.value })} /></span></label>
+          </div>
+          <button className="btn primary" disabled={busy} onClick={speichern}>Strompreis speichern</button>
+        </>
+      )}
+    </Klappkarte>
+  );
+}
+
 export default function Settings({ data, reload }) {
   const [s, setS] = useState(data.settings);
   const [rooms, setRooms] = useState(data.rooms);
@@ -306,8 +368,7 @@ export default function Settings({ data, reload }) {
     <div className="stack">
       {msg && <div className={msg.err ? 'alert' : 'notice'}>{msg.t}</div>}
 
-      <section className="card">
-        <div className="section-title">Betrieb</div>
+      <Klappkarte id="einstellungen-betrieb" titel="Betrieb" sum={`Testmodus ${s.dry_run ? 'an' : 'aus'} · Automatik ${s.automation_enabled ? 'an' : 'aus'}`}>
         <div className="switch-row">
           <div>
             <div><strong>Testmodus</strong></div>
@@ -327,7 +388,7 @@ export default function Settings({ data, reload }) {
             {s.automation_enabled ? 'An' : 'Aus'}
           </button>
         </div>
-      </section>
+      </Klappkarte>
 
       {data.rooms.length > 0 && data.rooms[0].pv_prio === undefined ? (
         <div className="alert">Für den Heizplan bitte zuerst <strong>supabase/migration-005-raumprofile.sql</strong> in Supabase ausführen.</div>
@@ -341,8 +402,7 @@ export default function Settings({ data, reload }) {
         <Reihenfolge data={data} settings={data.settings} reload={reload} setMsg={setMsg} />
       )}
 
-      <section className="card">
-        <div className="section-title">Haus</div>
+      <Klappkarte id="einstellungen-haus" titel="Haus" sub="Tagesablauf, PV, Netz, Batterie" standardAuf={false}>
         {HOUSE_FIELDS.map((g) => (
           <div key={g.group} className="field-group">
             <div className="eyebrow">{g.group}</div>
@@ -352,11 +412,13 @@ export default function Settings({ data, reload }) {
           </div>
         ))}
         <button className="btn primary" disabled={busy} onClick={() => saveHouse()}>Haus-Einstellungen speichern</button>
-      </section>
+      </Klappkarte>
+
+      <Strompreis setMsg={setMsg} />
 
       {rooms.map((r) => (
-        <section key={r.id} className="card">
-          <div className="section-title">{r.name}</div>
+        <Klappkarte key={r.id} id={`einstellungen-raum-${r.id}`} titel={r.name} standardAuf={false}
+          sum={`${r.enabled ? 'gesteuert' : 'nicht gesteuert'}`}>
           <div className="eyebrow">Solltemperatur je Modus</div>
           <div className="fields">
             {ROOM_FIELDS.map((f) => (
@@ -371,7 +433,7 @@ export default function Settings({ data, reload }) {
             Loxone: Fühler „{r.loxone_temp_name || '–'}“ · Sollwert „{r.loxone_setpoint_name}“ · Ventil „{r.loxone_valve_name || '–'}“
           </div>
           <button className="btn primary" disabled={busy} onClick={() => saveRoom(r)}>{r.name} speichern</button>
-        </section>
+        </Klappkarte>
       ))}
     </div>
   );

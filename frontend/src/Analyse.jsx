@@ -3,6 +3,7 @@ import {
   ResponsiveContainer, ComposedChart, Line, Area, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Legend, ReferenceArea,
 } from 'recharts';
 import { supabase } from './supabase.js';
+import { useAufZu } from './Klapp.jsx';
 
 const C = {
   pv: '#d9a400', use: '#57534e', heat: '#c2410c', car: '#64748b', grid: '#b4234a',
@@ -35,6 +36,7 @@ function useRpc(fn, args, deps) {
   const [state, setState] = useState({ data: null, error: null, loading: true });
   useEffect(() => {
     let cancel = false;
+    if (!fn) { setState({ data: [], error: null, loading: false }); return undefined; } // z. B. Vergleich „aus“
     setState((s) => ({ ...s, loading: true }));
     supabase.rpc(fn, args).then(({ data, error }) => {
       if (!cancel) setState({ data, error: error?.message ?? null, loading: false });
@@ -193,17 +195,20 @@ function SelfUseFacts({ pv, feed, use, gridIn }) {
   );
 }
 
+// Nummerierter Abschnitt, klappbar (12.11.2026); auf/zu je Titel und Gerät gemerkt
 function Section({ nr, title, question, children }) {
+  const [auf, umschalten] = useAufZu(`analyse-${title}`);
   return (
     <section className="card qsec">
-      <div className="qsec-head">
+      <button type="button" className="qsec-toggle" onClick={umschalten} aria-expanded={auf}>
         <span className="qsec-nr">{nr}</span>
         <div>
           <div className="chart-title">{title}</div>
           <div className="muted small">{question}</div>
         </div>
-      </div>
-      {children}
+        <span className={`collapse-chev ${auf ? 'open' : ''}`} aria-hidden="true">▶</span>
+      </button>
+      {auf && children}
     </section>
   );
 }
@@ -552,6 +557,8 @@ function aggregate(days) {
   t.outdoor_min = days.reduce((m, d) => (d.outdoor_min != null && (m == null || Number(d.outdoor_min) < m) ? Number(d.outdoor_min) : m), null);
   t.outdoor_max = days.reduce((m, d) => (d.outdoor_max != null && (m == null || Number(d.outdoor_max) > m) ? Number(d.outdoor_max) : m), null);
   t.days = days.length;
+  // erfasste Tage anteilig (heute zählt nur mit den bisherigen Stunden) – Grundlage für den Vergleich je Tag
+  t.eff_days = days.reduce((a, d) => a + Math.min(24, Number(d.data_hours) || 0) / 24, 0);
   t.empty_days = days.filter((d) => Number(d.bat_empty_h) >= 1).length;
   t.car_measured = days.some((d) => d.car_measured);
   t.autarky = t.use_kwh > 0 ? Math.round(100 * (1 - t.grid_in_kwh / t.use_kwh)) : null;
@@ -582,7 +589,7 @@ function toBars(period, days, range) {
 const barTip = { formatter: (v, name) => (/Außen/.test(name) ? `${num(v, 1)} °C` : /Stunden/.test(name) ? `${num(v, 1)} h` : `${num(v, 1)} kWh`) };
 const r1 = (v) => (v == null ? null : Math.round(v * 10) / 10);
 
-function PeriodChart({ data, bars, line, lineUnit = '°', height = 230 }) {
+function PeriodChart({ data, bars, line, lineUnit = '°', vgl, height = 230 }) {
   return (
     <ResponsiveContainer width="100%" height={height}>
       <ComposedChart data={data} margin={{ top: 12, right: line ? 4 : 8, bottom: 0, left: -6 }}>
@@ -595,18 +602,72 @@ function PeriodChart({ data, bars, line, lineUnit = '°', height = 230 }) {
           <Bar key={b.k} yAxisId="a" stackId="s" dataKey={(d) => r1(d[b.k])} name={b.label} fill={b.color} isAnimationActive={false} />
         ))}
         {line && <Line yAxisId="l" dataKey={(d) => r1(d[line.k])} name={line.label} stroke={line.color} strokeWidth={2} dot={{ r: 2 }} connectNulls isAnimationActive={false} />}
+        {vgl && <Line yAxisId="a" dataKey={(d) => r1(d[`vgl_${vgl.k}`])} name={vgl.label} stroke="var(--muted)" strokeDasharray="5 4" strokeWidth={1.5} dot={false} connectNulls isAnimationActive={false} />}
       </ComposedChart>
     </ResponsiveContainer>
   );
 }
 
+
+/* ---------------------- Vergleich und Kosten (12.11.2026) ---------------------- */
+// Vergleich nach Position im Zeitraum: Woche = gleicher Wochentag, Monat = gleicher Tag, Jahr = gleicher Monat.
+// Vorjahr bei Wochen: 52 Wochen (364 Tage) zurück, damit die Wochentage gleich bleiben.
+function vglAnker(period, date, vergleich) {
+  if (vergleich === 'aus') return null;
+  if (vergleich === 'vor') return shiftPeriod(period, date, -1);
+  if (period === 'week') return shiftDate(date, -364);
+  const d = utc(date); d.setUTCFullYear(d.getUTCFullYear() - 1); return iso(d);
+}
+const VGL_LABEL = { vor: { week: 'Vorwoche', month: 'Vormonat', year: 'Vorjahr' }, vorjahr: { week: 'Vorjahr', month: 'Vorjahr', year: 'Vorjahr' } };
+
+// Unterschied je Tag in %. besser = 'weniger' | 'mehr' (welche Richtung gut ist)
+function Delta({ a, b, besser = 'weniger', label }) {
+  if (a == null || b == null || !(Math.abs(b) > 0.05)) return label ? <div className="delta neutral">{label}: keine Daten</div> : null;
+  const p = Math.round((100 * (a - b)) / Math.abs(b));
+  const gut = p === 0 ? 'neutral' : (p < 0) === (besser === 'weniger') ? 'good' : 'bad';
+  return <div className={`delta ${gut}`}>{p > 0 ? '+' : ''}{p} % je Tag gegenüber {label}</div>;
+}
+
+// Preise aus muc_prices (migration-013); gilt ab valid_from bis zur nächsten Zeile
+function usePrices() {
+  const [state, setState] = useState({ rows: [], error: null, loading: true });
+  useEffect(() => {
+    let cancel = false;
+    supabase.from('muc_prices').select('*').order('valid_from').then(({ data, error }) => {
+      if (!cancel) setState({ rows: data || [], error: error?.message ?? null, loading: false });
+    });
+    return () => { cancel = true; };
+  }, []);
+  return state;
+}
+const priceOn = (rows, day) => rows.filter((r) => String(r.valid_from) <= day).pop() || null;
+
+// Kosten je Tag: Netzbezug × Arbeitspreis + Grundpreis / 365 (anteilig erfasster Stunden), Erlös Einspeisung
+function costOf(days, rows) {
+  let netz = 0, grund = 0, erloes = 0, ohnePreis = 0;
+  for (const d of days) {
+    const p = priceOn(rows, String(d.day).slice(0, 10));
+    if (!p) { ohnePreis += 1; continue; }
+    const anteil = Math.min(24, Number(d.data_hours) || 0) / 24;
+    netz += (Number(d.grid_in_kwh) || 0) * Number(p.grid_ct) / 100;
+    grund += Number(p.base_eur_year) / 365 * anteil;
+    erloes += (Number(d.feed_kwh) || 0) * Number(p.feed_ct) / 100;
+  }
+  return { netz, grund, erloes, gesamt: netz + grund - erloes, ohnePreis };
+}
+const eur = (v) => (v == null ? '–' : Number(v).toLocaleString('de-DE', { style: 'currency', currency: 'EUR' }));
+
 const Legend2 = ({ items }) => (
   <div className="srclegend">{items.map((i) => <span key={i.label}><i style={{ background: i.color }} />{i.label}</span>)}</div>
 );
 
-function PeriodView({ period, date }) {
+function PeriodView({ period, date, vergleich = 'vor' }) {
   const range = rangeOf(period, date);
   const q = useRpc('muc_range_days', { p_from: range.from, p_to: range.to }, [range.from, range.to]);
+  const va = vglAnker(period, date, vergleich);
+  const vRange = va ? rangeOf(period, va) : null;
+  const qv = useRpc(vRange ? 'muc_range_days' : null, vRange ? { p_from: vRange.from, p_to: vRange.to } : {}, [vRange?.from, vRange?.to]);
+  const prices = usePrices();
   if (q.error) return <div className="alert">{q.error}{/muc_range_days/.test(q.error) ? ' – bitte supabase/migration-003-zeitraeume.sql ausführen.' : ''}</div>;
   if (q.loading) return <div className="muted">Lade Auswertung …</div>;
   const days = q.data || [];
@@ -614,6 +675,23 @@ function PeriodView({ period, date }) {
 
   const T = aggregate(days);
   const bars = toBars(period, days, range);
+  // Vergleich: nach Position im Zeitraum ausgerichtet, Summen je Tag (eff_days)
+  const vDays = vRange && !qv.loading ? (qv.data || []) : [];
+  const V = vDays.length ? aggregate(vDays) : null;
+  const vLabel = vRange ? `${VGL_LABEL[vergleich][period]} (${periodLabel(period, va)})` : null;
+  if (V) {
+    const vb = toBars(period, vDays, vRange);
+    bars.forEach((b, i) => {
+      const v = vb[i];
+      if (v?.hasData) { b.vgl_pv_kwh = v.pv_kwh; b.vgl_grid_in_kwh = v.grid_in_kwh; }
+    });
+  }
+  const tagT = (k) => T[k] / Math.max(0.01, T.eff_days);
+  const tagV = (k) => (V ? V[k] / Math.max(0.01, V.eff_days) : null);
+  const K = costOf(days, prices.rows);
+  const KV = V ? costOf(vDays, prices.rows) : null;
+  const preisFehlt = !prices.loading && (prices.error || prices.rows.length === 0 || K.ohnePreis === days.length);
+
   const totalDays = Math.round((utc(range.to) - utc(range.from)) / 86400000) + 1;
   const perDay = (v) => kwh(v / Math.max(1, T.days));
   const offDayGrid = T.heat_grid_p1_kwh + T.heat_grid_p2_kwh + T.heat_grid_p4_kwh + T.heat_grid_p5_kwh;
@@ -636,10 +714,13 @@ function PeriodView({ period, date }) {
       {T.days < totalDays && <div className="notice-warn">Daten für {T.days} von {totalDays} Tagen{period !== 'year' ? '' : ''} – Summen gelten für die erfassten Tage.</div>}
 
       <section className="kpis">
-        <div className="card tile"><div className="eyebrow">PV</div><div className="tile-value">{kwh(T.pv_kwh)}</div><div className="muted small">Ø {perDay(T.pv_kwh)}/Tag · eingespeist {kwh(T.feed_kwh)}</div></div>
+        <div className="card tile"><div className="eyebrow">PV</div><div className="tile-value">{kwh(T.pv_kwh)}</div><div className="muted small">Ø {perDay(T.pv_kwh)}/Tag · eingespeist {kwh(T.feed_kwh)}</div>{V && <Delta a={tagT('pv_kwh')} b={tagV('pv_kwh')} besser="mehr" label={VGL_LABEL[vergleich][period]} />}</div>
         <SelfUseTiles pv={T.pv_kwh} feed={T.feed_kwh} use={T.use_kwh} gridIn={T.grid_in_kwh} pvHouse={T.pv_house_kwh} pvHeat={T.pv_heat_kwh} pvCar={T.pv_car_kwh} pvBat={T.pv_bat_kwh} />
-        <div className="card tile"><div className="eyebrow">Verbrauch</div><div className="tile-value">{kwh(T.use_kwh)}</div><div className="muted small">Ø {perDay(T.use_kwh)}/Tag · Heizung {kwh(T.heat_kwh)}</div></div>
-        <div className="card tile"><div className="eyebrow">Netzbezug</div><div className={`tile-value ${T.grid_in_kwh / Math.max(1, T.days) > 3 ? 'warn-text' : ''}`}>{kwh(T.grid_in_kwh)}</div><div className="muted small">davon Heizung {kwh(T.heat_grid_kwh)}</div></div>
+        <div className="card tile"><div className="eyebrow">Verbrauch</div><div className="tile-value">{kwh(T.use_kwh)}</div><div className="muted small">Ø {perDay(T.use_kwh)}/Tag · Heizung {kwh(T.heat_kwh)}</div>{V && <Delta a={tagT('use_kwh')} b={tagV('use_kwh')} label={VGL_LABEL[vergleich][period]} />}</div>
+        <div className="card tile"><div className="eyebrow">Netzbezug</div><div className={`tile-value ${T.grid_in_kwh / Math.max(1, T.days) > 3 ? 'warn-text' : ''}`}>{kwh(T.grid_in_kwh)}</div><div className="muted small">davon Heizung {kwh(T.heat_grid_kwh)}</div>{V && <Delta a={tagT('grid_in_kwh')} b={tagV('grid_in_kwh')} label={VGL_LABEL[vergleich][period]} />}</div>
+        <div className="card tile"><div className="eyebrow">Kosten Netz</div><div className="tile-value">{preisFehlt ? '–' : eur(K.netz + K.grund)}</div>
+          <div className="muted small">{preisFehlt ? 'Strompreis fehlt – Einstellungen › Strompreis' : `Arbeit ${eur(K.netz)} · Grundpreis ${eur(K.grund)} · Einspeisung +${eur(K.erloes)}`}</div>
+          {!preisFehlt && KV && <Delta a={(K.netz + K.grund) / Math.max(0.01, T.eff_days)} b={(KV.netz + KV.grund) / Math.max(0.01, V.eff_days)} label={VGL_LABEL[vergleich][period]} />}</div>
         <div className="card tile"><div className="eyebrow">Außen</div><div className="tile-value">{T.outdoor_avg != null ? `Ø ${num(T.outdoor_avg, 1, ' °C')}` : '–'}</div><div className="muted small">{T.outdoor_min != null ? `${num(T.outdoor_min, 1)} … ${num(T.outdoor_max, 1)} °C` : 'noch nicht erfasst'}</div></div>
       </section>
 
@@ -659,7 +740,8 @@ function PeriodView({ period, date }) {
           { k: 'pv_house_kwh', label: 'Haus', color: F.house }, { k: 'pv_heat_kwh', label: 'Heizung', color: F.heat },
           { k: 'pv_car_kwh', label: 'Auto', color: F.car }, { k: 'pv_bat_kwh', label: 'Batterie geladen', color: F.batIn },
           { k: 'feed_kwh', label: 'Eingespeist', color: F.feed },
-        ]} />
+        ]} vgl={V ? { k: 'pv_kwh', label: `PV ${VGL_LABEL[vergleich][period]}` } : null} />
+        {V && <div className="muted small">Gestrichelt: PV {vLabel}.</div>}
         <div className="chart-title">Eigenverbrauch und Autarkie je {unit}</div>
         <PctChart data={bars} />
         <Legend2 items={[{ label: 'Eigenverbrauch (PV selbst genutzt)', color: F.feed }, { label: 'Autarkie (Verbrauch ohne Netz)', color: C.bat }]} />
@@ -720,6 +802,39 @@ function PeriodView({ period, date }) {
               ]} />
             </>
           )}
+      </Section>
+
+      <Section nr="5" title="Netz und Kosten" question={`Wie viel kam aus dem Netz – und was hat es gekostet? (kWh je ${unit})`}>
+        <div className="facts">
+          <span>Netzbezug <strong>{kwh(T.grid_in_kwh)}</strong> · Ø {kwh(tagT('grid_in_kwh'))}/Tag{V ? ` · ${vLabel}: Ø ${kwh(tagV('grid_in_kwh'))}/Tag` : ''}</span>
+          {!preisFehlt && <span>Kosten <strong>{eur(K.netz + K.grund)}</strong>{KV ? ` · ${VGL_LABEL[vergleich][period]} ${eur(KV.netz + KV.grund)}` : ''}</span>}
+        </div>
+        <PeriodChart data={bars} bars={[
+          { k: 'heat_grid_kwh', label: 'Heizung', color: F.heat }, { k: 'house_grid_kwh', label: 'Haus', color: F.house },
+          { k: 'car_grid_kwh', label: 'Auto', color: F.car },
+        ]} vgl={V ? { k: 'grid_in_kwh', label: `Netz ${VGL_LABEL[vergleich][period]}` } : null} />
+        <Legend2 items={[{ label: 'Heizung aus dem Netz', color: F.heat }, { label: 'Haus', color: F.house }, { label: 'Auto', color: F.car }, ...(V ? [{ label: `gestrichelt: ${vLabel}`, color: 'var(--muted)' }] : [])]} />
+        {preisFehlt ? (
+          <div className="notice-warn small">
+            {prices.error && /muc_prices/.test(prices.error)
+              ? <>Für die Kosten bitte zuerst <strong>supabase/migration-013-strompreis.sql</strong> ausführen.</>
+              : <>Noch kein Strompreis hinterlegt – unter <strong>Einstellungen › Strompreis</strong> eintragen (Werte von der Stromrechnung).</>}
+          </div>
+        ) : (
+          <table className="ptable">
+            <thead><tr><th></th><th>{periodLabel(period, date)}</th>{KV && <th>{VGL_LABEL[vergleich][period]}</th>}</tr></thead>
+            <tbody>
+              <tr><td>Netzbezug</td><td>{kwh(T.grid_in_kwh)}</td>{KV && <td>{kwh(V.grid_in_kwh)}</td>}</tr>
+              <tr><td>Arbeitspreis</td><td>{eur(K.netz)}</td>{KV && <td>{eur(KV.netz)}</td>}</tr>
+              <tr><td>Grundpreis (anteilig)</td><td>{eur(K.grund)}</td>{KV && <td>{eur(KV.grund)}</td>}</tr>
+              <tr><td>Einspeisung</td><td>+{eur(K.erloes)}</td>{KV && <td>+{eur(KV.erloes)}</td>}</tr>
+              <tr><td><strong>Saldo</strong></td><td><strong>{eur(K.gesamt)}</strong></td>{KV && <td><strong>{eur(KV.gesamt)}</strong></td>}</tr>
+              <tr><td>je Tag</td><td>{eur(K.gesamt / Math.max(0.01, T.eff_days))}</td>{KV && <td>{eur(KV.gesamt / Math.max(0.01, V.eff_days))}</td>}</tr>
+            </tbody>
+          </table>
+        )}
+        {!preisFehlt && K.ohnePreis > 0 && <div className="muted small">{K.ohnePreis} Tage liegen vor dem ersten eingetragenen Preis und sind nicht eingerechnet.</div>}
+        <div className="muted small">Preise brutto, so wie auf der Rechnung. Vergleich je Tag, damit unvollständige Zeiträume vergleichbar sind.</div>
       </Section>
     </div>
   );
@@ -900,6 +1015,8 @@ export default function Analyse({ settings, rooms }) {
   const [period, setPeriod] = useState('day');
   const [view, setView] = useState('energy');
   const [date, setDate] = useState(todayBerlin());
+  const [vergleich, setVergleich] = useState(() => { try { return localStorage.getItem('analyse-vergleich') || 'vor'; } catch { return 'vor'; } });
+  const setVgl = (v) => { setVergleich(v); try { localStorage.setItem('analyse-vergleich', v); } catch { /* egal */ } };
   const active = rooms.filter((r) => r.enabled);
   const P = [['day', 'Tag'], ['week', 'Woche'], ['month', 'Monat'], ['year', 'Jahr']];
   return (
@@ -915,9 +1032,16 @@ export default function Analyse({ settings, rooms }) {
         </div>
       </div>
       <PeriodNav period={period} date={date} setDate={setDate} />
+      {period !== 'day' && view === 'energy' && (
+        <div className={`seg ${period === 'year' ? 'seg-2' : 'seg-3'}`} role="group" aria-label="Vergleich">
+          {[['vor', VGL_LABEL.vor[period]], ['vorjahr', 'Vorjahr'], ['aus', 'kein Vergleich']].filter(([k]) => !(period === 'year' && k === 'vorjahr')).map(([k, l]) => (
+            <button key={k} className={vergleich === k ? 'seg-btn active' : 'seg-btn'} onClick={() => setVgl(k)}>{l}</button>
+          ))}
+        </div>
+      )}
       {view === 'forecast' ? <ForecastView period={period} date={date} /> : period === 'day'
         ? (view === 'energy' ? <DayView date={date} settings={settings} /> : <RoomsView date={date} settings={settings} rooms={active} />)
-        : (view === 'energy' ? <PeriodView period={period} date={date} /> : <PeriodRoomsView period={period} date={date} rooms={active} />)}
+        : (view === 'energy' ? <PeriodView period={period} date={date} vergleich={period === 'year' && vergleich === 'vorjahr' ? 'vor' : vergleich} /> : <PeriodRoomsView period={period} date={date} rooms={active} />)}
     </div>
   );
 }

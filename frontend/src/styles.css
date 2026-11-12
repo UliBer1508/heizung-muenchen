@@ -429,3 +429,15 @@ select, input[type='number'], input[type='time'], input[type='email'], input[typ
 .heatnow-flame { color: var(--accent); margin-right: 8px; font-size: 11px; vertical-align: 1px; }
 .heatnow-foot { border-top: 1px solid var(--line); padding-top: 10px; }
 @media (max-width: 560px) { .heatnow .kpis { grid-template-columns: 1fr; } }
+
+/* Klappbare Abschnitte (Klapp.jsx, 12.11.2026) */
+.klapp-row { display: flex; align-items: flex-start; gap: 12px; }
+.klapp-row .collapse-head { flex: 1; min-width: 0; }
+.qsec-toggle { all: unset; box-sizing: border-box; display: flex; gap: 12px; align-items: center; width: 100%; cursor: pointer; }
+.qsec-toggle:focus-visible { outline: 2px solid var(--ink); outline-offset: 4px; border-radius: 6px; }
+.qsec-toggle > div { flex: 1; min-width: 0; }
+/* Vergleich Vorperiode / Vorjahr */
+.delta { font-size: 12px; margin-top: 2px; }
+.delta.good { color: var(--green); }
+.delta.bad { color: var(--rose); }
+.delta.neutral { color: var(--muted); }
