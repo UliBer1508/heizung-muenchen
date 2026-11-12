@@ -11,10 +11,12 @@ Parameter je Raum (Strom je Stunde Heizen), kein anderes Konzept.
 
 - Alles, was Venediger schon hat, wird **übernommen** (Logik, Planer `heizplaner`/`modell.ts`, Ansichten wie
   Auto-Steuerung, Verlauf und Wirkung, KI-Vorschläge) – nicht für München neu geschrieben.
-- Wo der Code geteilt werden kann (gleiche Supabase-Datenbank), gibt es **eine** Quelle; München liefert nur die
-  Daten über einen Adapter (z. B. `muc_rooms`, `muc_room_readings`, `muc_forecast`).
-- Nur was es in München wirklich anders gibt (Wärmepumpe mit eigenem Zeitprogramm, Warmwasser, evcc), wird
-  ergänzt – und dann möglichst so, dass Venediger es ebenfalls nutzen kann.
+- **Jedes System läuft eigenständig:** Alles für München liegt im Repo `heizung-muenchen` und wird von hier deployt
+  (eigene Edge Functions, eigene `muc_*`-Tabellen). Venediger wird dafür nicht geändert.
+- Braucht München eine Datei aus Venediger (z. B. `supabase/functions/heizplaner/modell.ts`), wird sie **ins
+  München-Repo kopiert**, mit Herkunft (Repo, Pfad, Commit) im Dateikopf. Geändert wird die Kopie nur, wo München
+  es wirklich braucht.
+- Nur was es in München wirklich anders gibt (Wärmepumpe mit eigenem Zeitprogramm, Warmwasser, evcc), wird ergänzt.
 
 ## Ziel
 
