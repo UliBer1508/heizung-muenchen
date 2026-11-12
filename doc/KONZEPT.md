@@ -2,6 +2,20 @@
 
 Stand: 27.10.2026 · Version 0.6 (alle 15 Räume). Ursprünglich Pilot 0.1 mit KG Bad – Projektstand und Roadmap in [`STAND-UND-ROADMAP.md`](STAND-UND-ROADMAP.md).
 
+## Grundregel: Venediger übernehmen, nicht neu entwickeln (Uli, 12.11.2026)
+
+München steuert nach demselben Prinzip wie Heizung Venediger: Solltemperatur je Raum, Estrich als Speicher,
+bei PV-Überschuss aufheizen bzw. überheizen, ohne PV so wenig Netzstrom wie möglich. Unterschied ist nur der
+Aktor (Loxone-Ventil + Wärmepumpe statt elektrischer Bodenheizung) – für Planer und Auswertung ist das ein
+Parameter je Raum (Strom je Stunde Heizen), kein anderes Konzept.
+
+- Alles, was Venediger schon hat, wird **übernommen** (Logik, Planer `heizplaner`/`modell.ts`, Ansichten wie
+  Auto-Steuerung, Verlauf und Wirkung, KI-Vorschläge) – nicht für München neu geschrieben.
+- Wo der Code geteilt werden kann (gleiche Supabase-Datenbank), gibt es **eine** Quelle; München liefert nur die
+  Daten über einen Adapter (z. B. `muc_rooms`, `muc_room_readings`, `muc_forecast`).
+- Nur was es in München wirklich anders gibt (Wärmepumpe mit eigenem Zeitprogramm, Warmwasser, evcc), wird
+  ergänzt – und dann möglichst so, dass Venediger es ebenfalls nutzen kann.
+
 ## Ziel
 
 PV-Überschuss und Batterie der FENECON-Anlage (10 kWp, 10 kWh) so nutzen, dass die
