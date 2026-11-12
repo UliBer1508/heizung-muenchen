@@ -15,6 +15,10 @@ export const DEFAULT_REGISTERS = Object.freeze({
   battery: 415,
 });
 
+// 0.11.1 (12.11.2026): Das FEMS liefert bei einem kurzen Aussetzer für „unbekannt“ 0xFFFF = 65535 (so am 05.11.2026
+// 12:38–12:40). Ein Ladestand außerhalb 0–100 % gilt als nicht gelesen (null) – die Logik behandelt null schon sicher.
+export const validSoc = (v) => (Number.isInteger(v) && v >= 0 && v <= 100 ? v : null);
+
 export async function readFenecon(cfg) {
   const base = { host: cfg.host, port: cfg.port, unitId: cfg.unitId, functionCode: cfg.functionCode };
   const r = { ...DEFAULT_REGISTERS, ...(cfg.registers || {}) };
@@ -27,7 +31,7 @@ export async function readFenecon(cfg) {
   const clean = (v) => (Number.isFinite(v) ? Math.round(v) : null);
   return {
     ts: Date.now(),
-    soc,
+    soc: validSoc(soc),
     gridW: clean(gridW),
     pvW: clean(pvW),
     consumptionW: clean(consumptionW),

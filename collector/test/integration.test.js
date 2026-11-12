@@ -71,6 +71,14 @@ test('FENECON lesen über Modbus', async () => {
   );
 });
 
+test('FENECON: Ladestand 65535 (FEMS-Aussetzer) wird verworfen', async () => {
+  const fems = await fakeFems({ 302: 65535, 315: 100, 327: 0, 343: 100, 415: 0 });
+  const r = await readFenecon({ host: '127.0.0.1', port: fems.address().port, unitId: 1, functionCode: 3 });
+  fems.close();
+  assert.equal(r.soc, null);
+  assert.equal(r.gridW, 100);
+});
+
 test('Loxone lesen, schreiben, falsches Passwort', async () => {
   const { server, calls } = await fakeLoxone({ 'Temp KG Bad': 21.375, API_Boost_Bad: 21 });
   const host = `127.0.0.1:${server.address().port}`;

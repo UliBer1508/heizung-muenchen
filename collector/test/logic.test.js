@@ -147,6 +147,9 @@ test('Mittelwert über die letzten Minuten', () => {
   assert.equal(a.pvW, 5000);
   assert.equal(a.soc, 61);
   assert.equal(averageEnergy([], now, 5), null);
+  // Lesefehler (65535 / null) zählt nicht: letzter gültiger Wert, sonst null
+  assert.equal(averageEnergy([...buf, { ts: now, pvW: null, gridW: null, batteryW: null, consumptionW: null, soc: null }], now, 5).soc, 61);
+  assert.equal(averageEnergy([{ ts: now, pvW: 1, gridW: 1, batteryW: 0, consumptionW: 1, soc: 65535 }], now, 5).soc, null);
 });
 
 test('Tagesprotokoll: einmal am Tag, nicht nachts', () => {
