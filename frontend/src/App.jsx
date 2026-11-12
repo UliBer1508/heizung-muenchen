@@ -112,7 +112,10 @@ export function useLiveData(intervalMs = 30000) {
 }
 
 function Shell({ session }) {
-  const [tab, setTab] = useState('auto');
+  // Start-Tab: ?tab=… (Kurzbefehle am App-Icon, manifest.webmanifest), sonst Auto-Steuerung
+  const [tab, setTab] = useState(() => {
+    try { const t = new URLSearchParams(window.location.search).get('tab'); return TABS.some((x) => x.id === t) ? t : 'auto'; } catch { return 'auto'; }
+  });
   const gehZu = (t) => { setTab(t); window.scrollTo(0, 0); };
   const live = useLiveData();
   const ki = useKiOpen();

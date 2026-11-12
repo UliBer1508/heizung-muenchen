@@ -361,3 +361,17 @@ Der Planer läuft im **Schattenbetrieb** – er steuert nichts. Die Analyse blei
    Im Log: „Collector 0.12.0 startet“. Fehlt die Edge Function, steht dort einmal ein Hinweis auf diesen Abschnitt.
 4. App (Vercel baut automatisch): Auto-Steuerung › Plan zeigt nach spätestens 15 min den ersten Plan.
    Das Raummodell und die Gegenrechnung kommen nach der ersten Nacht (03:00).
+
+## 17. Update: App wie Venediger als PWA (12.11.2026)
+
+Aus Heizung Venediger übernommen, nur im München-Repo:
+
+- **Startbild** beim Öffnen am iPhone/iPad (`public/apple-splash-*.png`, 6 Geräte, Hochformat).
+- **Kurzbefehle** am App-Icon (lange drücken): *Auto-Steuerung* und *Übersicht* (`manifest.webmanifest`, `?tab=…`).
+- **Offline-Seite** `public/offline.html`, falls die App ohne Netz und ohne gespeicherte Hülle geöffnet wird.
+- **Cache je Version:** `sw.js` bekommt beim Bauen eine eigene Kennung, alte Programmdateien werden gelöscht.
+- **Feste App-Kennung** (`id` im Manifest), damit die installierte App bei späteren Änderungen dieselbe bleibt.
+
+Nichts zu tun: Vercel baut automatisch, die App holt sich die neue Version beim nächsten Öffnen.
+Startbild und Kurzbefehle erscheinen erst, wenn die App einmal vom Home-Bildschirm entfernt und neu hinzugefügt wird
+(iPhone: Safari › Teilen › Zum Home-Bildschirm).

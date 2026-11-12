@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<!-- Offline-Seite (12.11.2026), übernommen aus Heizung Venediger (public/offline.html), Farben der Münchner App -->
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#f6f4ef">
+  <title>Offline – Heizung München</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'IBM Plex Sans', system-ui, sans-serif; background: #f6f4ef; color: #1f1d1a; min-height: 100vh;
+           display: flex; align-items: center; justify-content: center; padding: 20px; }
+    @media (prefers-color-scheme: dark) { body { background: #171614; color: #f2eee7; } p { color: #a39b8f; } }
+    .box { text-align: center; max-width: 400px; }
+    img { width: 80px; height: 80px; border-radius: 18px; margin-bottom: 24px; }
+    h1 { font-size: 22px; margin-bottom: 12px; }
+    p { color: #7a746b; font-size: 16px; line-height: 1.6; margin-bottom: 28px; }
+    button { background: #1f1d1a; color: #f6f4ef; border: 0; padding: 12px 28px; font-size: 16px; font-weight: 600; border-radius: 12px; cursor: pointer; }
+    @media (prefers-color-scheme: dark) { button { background: #f2eee7; color: #171614; } }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <img src="/icon-192.png" alt="">
+    <h1>Keine Verbindung</h1>
+    <p>Die Heizung läuft weiter – der Collector im Haus steuert auch ohne App. Sobald das Handy wieder Netz hat, zeigt die App die aktuellen Werte.</p>
+    <button onclick="location.reload()">Erneut versuchen</button>
+  </div>
+  <script>window.addEventListener('online', () => location.reload());</script>
+</body>
+</html>
