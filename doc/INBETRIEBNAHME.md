@@ -322,3 +322,21 @@ Konzept: `doc/KONZEPT-TAGESMODI-2026-11-09.md` (freigegeben 09.11.2026). Tagesmo
    Im Log: „Collector 0.11.0 startet“, dann z. B. „Netzgrenze 6 Kreise: es heizen 6 – …“.
 3. App (Vercel baut automatisch): Einstellungen → je Raum **Untergrenze** prüfen, Haus → *Ohne PV-Überschuss*.
 4. Alexa (optional, nur Texte): Supabase → Edge Functions → `alexa-heizung` → Code ersetzen → Deploy.
+
+## Vergleich, Netzkosten, klappbare Abschnitte (12.11.2026)
+
+Wie in Heizung Venediger (Auto-Steuerung › Verlauf), angepasst an die Münchner Analyse:
+
+- **Analyse › Woche/Monat/Jahr:** Vergleich mit **Vorwoche/Vormonat/Vorjahr** oder **Vorjahr** oder aus.
+  - Kacheln zeigen den Unterschied **je Tag** in % (heute zählt nur mit den bisherigen Stunden), damit unvollständige Zeiträume vergleichbar sind.
+  - In „PV-Anlage“ und „Netz und Kosten“ ist der Vergleichszeitraum gestrichelt, nach Position ausgerichtet (Wochentag, Tag im Monat, Monat).
+  - Vorjahr bei Wochen: 52 Wochen zurück (gleiche Wochentage).
+- **Netzkosten:** neue Kachel „Kosten Netz“ und Abschnitt 5 „Netz und Kosten“ (Arbeitspreis, Grundpreis anteilig, Einspeisung, Saldo, je Tag).
+  Grundlage: Tabelle `muc_prices`, je Zeile ein Preis ab einem Datum (brutto, von der Stromrechnung). Eingabe unter **Einstellungen › Strompreis**.
+- **Klappbar:** Abschnitte in Analyse, KI und Einstellungen lassen sich auf- und zuklappen; der Zustand bleibt je Gerät (`Klapp.jsx`).
+
+1. Supabase: `supabase/migration-013-strompreis.sql` ausführen (legt nur `muc_prices` an).
+2. App (Vercel baut automatisch): Einstellungen → **Strompreis** → Werte der Münchner Stromrechnung eintragen
+   (gültig ab, Arbeitspreis brutto ct/kWh, Grundpreis brutto €/Jahr inkl. Messentgelt, Einspeisevergütung).
+3. Collector: keine Änderung.
+

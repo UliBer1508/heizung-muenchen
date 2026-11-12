@@ -2,6 +2,7 @@
 // Die KI misst und schlägt vor, geschrieben wird nur über muc_ki_decide() nach „Ja“.
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from './supabase.js';
+import { Klappkarte } from './Klapp.jsx';
 import { fmtDateTime, fmtT, fmtTime } from './lib.js';
 
 const num = (v, d = 1) => (v == null ? '–' : Number(v).toLocaleString('de-DE', { minimumFractionDigits: d, maximumFractionDigits: d }));
@@ -115,8 +116,7 @@ function Outlook({ outlook, model }) {
   const started = first.night_from && new Date(first.night_from) <= new Date();
   const byId = Object.fromEntries((model || []).map((m) => [m.room_id, m]));
   return (
-    <section className="card">
-      <div className="section-title">Raummodell <span className="plan-sub">wie schnell kühlt jeder Raum aus?</span></div>
+    <Klappkarte id="ki-raummodell" titel="Raummodell" sub="wie schnell kühlt jeder Raum aus?" sum={`${outlook.length} Räume`}>
       <p className="muted small">
         Gelernt aus den Nächten ohne Heizen (Ventil zu oder Wärmepumpe aus). Gerechnet wird vorsichtig (die schnelleren 25 % der Nächte).
         Heute Nacht {fmtTime(first.night_from)}–{fmtTime(first.night_to)} Uhr, außen erwartet {fmtT(first.outdoor_fc)}.
@@ -160,7 +160,7 @@ function Outlook({ outlook, model }) {
         </table>
       </div>
       <p className="muted small">„kühlt/Nacht“ = gemessener Median der letzten Nächte (Nacht = {fmtTime(first.night_from)}–{fmtTime(first.night_to)} Uhr). Rot = reicht nicht ohne Nachheizen.</p>
-    </section>
+    </Klappkarte>
   );
 }
 
@@ -216,22 +216,16 @@ export default function Ki({ rooms, onChanged }) {
   return (
     <div className="stack">
       {hints.length > 0 && (
-        <section className="card">
-          <div className="section-title">Hinweise <span className="plan-sub">sofort, ohne auf morgen zu warten</span></div>
+        <Klappkarte id="ki-hinweise" titel="Hinweise" sub="sofort, ohne auf morgen zu warten" sum={`${hints.length} offen`}>
           <div className="ki-list">
             {hints.map((s) => <Suggestion key={s.id} s={s} roomName={roomName[s.room_id]} onDone={done} />)}
           </div>
-        </section>
+        </Klappkarte>
       )}
 
-      <section className="card">
-        <div className="ki-head">
-          <div>
-            <div className="section-title">Zu entscheiden ({decide.length})</div>
-            <div className="muted small">Die KI ändert nichts selbst. Erst nach „Ja“ wird der Wert geschrieben, nach 3 Tagen kommt ein Wirkungsbericht.</div>
-          </div>
-          <button className="btn small" disabled={busy} onClick={runNow}>{busy ? 'Analysiere …' : 'Neu analysieren'}</button>
-        </div>
+      <Klappkarte id="ki-entscheiden" titel={`Zu entscheiden (${decide.length})`} sum={decide.length ? `${decide.length} offen` : 'nichts offen'}
+        rechts={<button className="btn small" disabled={busy} onClick={runNow}>{busy ? 'Analysiere …' : 'Neu analysieren'}</button>}>
+        <div className="muted small">Die KI ändert nichts selbst. Erst nach „Ja“ wird der Wert geschrieben, nach 3 Tagen kommt ein Wirkungsbericht.</div>
         {msg && <div className={msg.err ? 'alert' : 'notice'}>{msg.t}</div>}
         {state.run && (
           <div className="ki-review">
@@ -242,11 +236,10 @@ export default function Ki({ rooms, onChanged }) {
         {decide.length === 0
           ? <div className="muted">Alles im Rahmen – nichts zu entscheiden.</div>
           : <div className="ki-list">{decide.map((s) => <Suggestion key={s.id} s={s} roomName={roomName[s.room_id]} onDone={done} />)}</div>}
-      </section>
+      </Klappkarte>
 
       {(reports.length > 0 || infos.length > 0) && (
-        <section className="card">
-          <div className="section-title">Zur Info <span className="plan-sub">nichts zu tun</span></div>
+        <Klappkarte id="ki-info" titel="Zur Info" sub="nichts zu tun" sum={`${reports.length + infos.length} Einträge`}>
           <div className="insights">
             {reports.map((s) => (
               <div key={`r${s.id}`} className={`insight ${/schlechter/.test(s.effect_text) ? 'tone-rose' : 'tone-green'}`}>
@@ -261,7 +254,7 @@ export default function Ki({ rooms, onChanged }) {
               </div>
             ))}
           </div>
-        </section>
+        </Klappkarte>
       )}
 
       <Outlook outlook={state.outlook} model={state.model} />

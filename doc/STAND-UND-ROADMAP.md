@@ -182,7 +182,8 @@ Seit 0.5 heißen die Spalten in der App *Absenk / Normal / PV-Laden / Batterie v
 
 ### Phase 2 – Analyse: Vergleich (nach 1–2 Wochen Daten)
 - ✅ Erledigt: Tageswerte dauerhaft (`muc_daily_stats`), Zeiträume Woche/Monat/Jahr.
-- Offen: Gegenüberstellung zweier Zeiträume (vor/nach einer Änderung), bezogen auf die Außentemperatur
+- ✅ Erledigt 12.11.2026: Vergleich mit Vorwoche/Vormonat/Vorjahr je Tag, Netzkosten aus `muc_prices` (migration-013), klappbare Abschnitte.
+- Offen: Gegenüberstellung bezogen auf die Außentemperatur
   (z. B. Heizstrom je Heizgradtag).
 - Optional: Import historischer FEMS-Exporte (Monat/Jahr), damit die Jahresansicht vor dem 22.10.2026 Werte zeigt.
 
