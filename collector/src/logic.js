@@ -500,7 +500,8 @@ export function averageEnergy(buffer, now, minutes) {
     gridW: Math.round(avg('gridW')),
     batteryW: Math.round(avg('batteryW')),
     consumptionW: Math.round(avg('consumptionW')),
-    soc: Math.round(recent[recent.length - 1].soc),
+    // letzter gültiger Ladestand im Fenster (null statt 0, wenn keiner gelesen wurde)
+    soc: (() => { const s = recent.map((r) => r.soc).filter((v) => v != null && v >= 0 && v <= 100); return s.length ? Math.round(s[s.length - 1]) : null; })(),
     samples: recent.length,
   };
 }

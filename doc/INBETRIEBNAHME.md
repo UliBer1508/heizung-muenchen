@@ -340,3 +340,18 @@ Wie in Heizung Venediger (Auto-Steuerung › Verlauf), angepasst an die Münchne
    (gültig ab, Arbeitspreis brutto ct/kWh, Grundpreis brutto €/Jahr inkl. Messentgelt, Einspeisevergütung).
 3. Collector: keine Änderung.
 
+
+## Collector 0.11.1 – Lesefehler Ladestand (12.11.2026)
+
+Bei einem kurzen FEMS-Aussetzer kam als Ladestand 65535 an (05.11.2026, 12:38–12:40). Ab 0.11.1 gilt ein Ladestand
+außerhalb 0–100 % als nicht gelesen; der Mittelwert nimmt den letzten gültigen Wert. Vorher hätte ein solcher Wert
+„Batterie voll“ auslösen können, wenn gleichzeitig genug eingespeist wird. Die zwei Fehlwerte in der Datenbank sind
+bereinigt und der 05.11. neu gerechnet (`supabase/migration-014-soc-lesefehler.sql`, am 12.11.2026 ausgeführt).
+
+Mini-PC:
+```powershell
+cd C:\Users\ulibe\heizung-muenchen
+git pull
+C:\nssm\nssm.exe restart HeizungMuenchen
+```
+Im Log: „Heizung München Collector 0.11.1 startet“. Durch die neue Versionsnummer beginnt die PV-Stufe einmal bei 0.

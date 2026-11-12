@@ -1,6 +1,6 @@
 {
   "name": "heizung-muenchen-collector",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "private": true,
   "description": "Liest FENECON und Loxone, steuert die Raum-Sollwerte nach PV-Überschuss",
   "type": "module",
