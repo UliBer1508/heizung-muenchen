@@ -1,0 +1,65 @@
+# Edge Functions München automatisch zu Supabase deployen (12.11.2026)
+# Kopie des Venediger-Workflows (smartfox-insight-ai-selfhosted/.github/workflows/deploy-functions.yml, Commit bf8d3a7).
+# München deployt eigenständig aus diesem Repo – nur die Funktionen unter supabase/functions/ dieses Repos.
+# Läuft nach jedem Push auf main, der etwas unter supabase/functions/ ändert, und deployt nur die geänderten Funktionen.
+# Einmalig nötig: GitHub › heizung-muenchen › Settings › Secrets and variables › Actions › New repository secret
+#   Name: SUPABASE_ACCESS_TOKEN   Wert: Token aus https://supabase.com/dashboard/account/tokens
+# Manuell starten: Actions › „Edge Functions deployen“ › Run workflow – im Feld „funktionen“ die Namen eintragen.
+# alexa-heizung braucht --no-verify-jwt (Amazon schickt kein Supabase-Token, doc/ALEXA.md).
+name: Edge Functions deployen
+
+on:
+  push:
+    branches: [main]
+    paths: ['supabase/functions/**']
+  workflow_dispatch:
+    inputs:
+      funktionen:
+        description: 'Welche Funktionen deployen? Namen mit Leerzeichen getrennt (z. B. "heizplaner-muenchen"). Leer = alle.'
+        required: false
+        default: ''
+
+concurrency:
+  group: deploy-functions-muenchen
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      PROJECT_REF: pflnniklvqbwjwrjswaz
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Geänderte Funktionen bestimmen
+        id: changed
+        run: |
+          if [ -n "${{ github.event.inputs.funktionen }}" ]; then
+            list="${{ github.event.inputs.funktionen }}"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            list=$(find supabase/functions -mindepth 1 -maxdepth 1 -type d ! -name '_*' -exec basename {} \; | sort)
+          else
+            list=$(git diff --name-only HEAD~1 HEAD | grep '^supabase/functions/' | cut -d/ -f3 | grep -v '^_' | sort -u)
+          fi
+          keep=""
+          for f in $list; do [ -f "supabase/functions/$f/index.ts" ] && keep="$keep $f"; done
+          echo "functions=$keep" >> "$GITHUB_OUTPUT"
+          echo "Zu deployen:$keep"
+
+      - name: Deployen
+        if: steps.changed.outputs.functions != ''
+        run: |
+          for f in ${{ steps.changed.outputs.functions }}; do
+            echo "::group::$f"
+            extra=""
+            [ "$f" = "alexa-heizung" ] && extra="--no-verify-jwt"
+            supabase functions deploy "$f" --project-ref "$PROJECT_REF" --yes $extra
+            echo "::endgroup::"
+          done

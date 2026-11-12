@@ -9,12 +9,13 @@ import { LoxoneClient, readRoom } from './loxone.js';
 import { Db } from './db.js';
 import { readOutdoorTemp, readEvccChargePower } from './extras.js';
 import { readFemsForecast } from './fems-rest.js';
+import { Planer } from './planer.js';
 import {
   DEFAULT_SETTINGS, averageEnergy, phaseAt, desiredPvLevel, holdPvLevel, houseModeOf, roomTarget, needsWrite, surplusW,
-  shouldCaptureDayContext, allocateRooms, trackHeatRuns, dayModeOf, PV_FULL,
+  shouldCaptureDayContext, allocateRooms, trackHeatRuns, dayModeOf, PV_FULL, localMinutes,
 } from './logic.js';
 
-const VERSION = '0.11.0';
+const VERSION = '0.12.0';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const stateDir = process.env.STATE_DIR || path.join(here, '..', 'state');
 const cacheFile = path.join(stateDir, 'cache.json');
@@ -51,6 +52,8 @@ const cfg = {
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 const db = new Db(cfg.supabase);
 const lox = new LoxoneClient(cfg.loxone);
+// Planer der Auto-Steuerung (Schattenbetrieb, ab 0.12) – PLANER=off schaltet das Anstoßen ab
+const planer = new Planer({ url: env.PLANER === 'off' ? null : cfg.supabase.url, key: cfg.supabase.key, log });
 
 // Laufzeitzustand
 const buffer = []; // Messpuffer FENECON (letzte 30 min)
@@ -396,6 +399,9 @@ async function tick() {
       log('Tageswerte nicht gespeichert (migration-003-zeitraeume.sql ausgeführt?):', e.message);
     }
   }
+
+  // 6b) Planer der Auto-Steuerung anstoßen (alle 15 min planen, ab 03:00 lernen) – wartet nicht, steuert nichts
+  planer.tick({ now, today: berlinDay, minutes: localMinutes(now, settings.timezone || 'Europe/Berlin'), rooms: cache.rooms || [] });
 
   // 7) Einmal täglich alte Messwerte löschen
   const day = now.toISOString().slice(0, 10);

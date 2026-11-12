@@ -224,6 +224,10 @@ Seit 0.5 heißen die Spalten in der App *Absenk / Normal / PV-Laden / Batterie v
   Einschränkung: nur diese Zeitpunkte, keine Stundenkurve.
 - Hinweis: Die „netzdienliche Beladung“ im FEMS (`ctrlGridOptimizedCharge0`) nutzt dieselbe Prognose; sie wurde am 22.10.2026 für die evcc-Einstellungen ausgeschaltet.
 - ✅ Automatische Empfehlungen aus den Raumkennzahlen – umgesetzt als KI-Vorschläge mit Raummodell (05.11.2026, `KI.md`).
+- ✅ **Auto-Steuerung wie in Venediger (12.11.2026, Collector 0.12, migration-014):** rechnender Planer aus Venediger
+  übernommen (`heizplaner-muenchen`, `modell.ts` unverändert), Schattenbetrieb mit täglicher Gegenrechnung; Tab
+  *Auto-Steuerung* mit Verlauf und Wirkung, Steuerung, Plan. Ersetzt die Stufen B/C oben als Weg zur vorausschauenden
+  Steuerung. Offen: Steuern freigeben, Warmwasser/Auto als eigene Last. `AUTO-STEUERUNG-2026-11-12.md`.
 
 ---
 

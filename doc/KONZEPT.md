@@ -17,6 +17,9 @@ Parameter je Raum (Strom je Stunde Heizen), kein anderes Konzept.
   München-Repo kopiert**, mit Herkunft (Repo, Pfad, Commit) im Dateikopf. Geändert wird die Kopie nur, wo München
   es wirklich braucht.
 - Nur was es in München wirklich anders gibt (Wärmepumpe mit eigenem Zeitprogramm, Warmwasser, evcc), wird ergänzt.
+- Bestehende Münchner Teile bleiben, wie sie sind, wenn Uli es so will: Die **Analyse bleibt unverändert**, die
+  Auto-Steuerung kommt als eigener Menüpunkt dazu (Uli, 12.11.2026). Erste Übernahme nach dieser Regel:
+  [`AUTO-STEUERUNG-2026-11-12.md`](AUTO-STEUERUNG-2026-11-12.md).
 
 ## Ziel
 

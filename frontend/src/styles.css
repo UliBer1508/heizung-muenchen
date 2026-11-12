@@ -237,7 +237,7 @@ select, input[type='number'], input[type='time'], input[type='email'], input[typ
   .brand-title { font-size: 17px; }
   .tabs {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
-    display: grid; grid-template-columns: repeat(5, 1fr); gap: 0;
+    display: grid; grid-template-columns: repeat(6, 1fr); gap: 0;
     background: var(--card); border-top: 1px solid var(--line);
     padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
     overflow: visible;
@@ -441,3 +441,44 @@ select, input[type='number'], input[type='time'], input[type='email'], input[typ
 .delta.good { color: var(--green); }
 .delta.bad { color: var(--rose); }
 .delta.neutral { color: var(--muted); }
+
+/* ---------- Auto-Steuerung (12.11.2026, aus Heizung Venediger übernommen) ---------- */
+/* Farben wie Venediger (geprüft hell und dunkel, inkl. Farbenblindheit) */
+:root { --c-pv: #c77a05; --c-heiz: #3c83f6; --c-netz: #df3a3a; --c-rest: #9b59d0; --c-ki: #7c3aed; --c-bat: var(--cool); }
+@media (prefers-color-scheme: dark) {
+  :root { --c-pv: #c47f0e; --c-heiz: #4a8ef0; --c-netz: #e45050; --c-rest: #b57ee6; --c-ki: #a78bfa; }
+}
+.tab-kurz { display: none; }
+.auto-nr { background: var(--c-ki); color: #fff; }
+.auto-bar { justify-content: space-between; }
+.auto-titel { cursor: default; min-width: 11rem; text-align: center; }
+.auto-chart { height: 256px; }
+.auto-chart.klein { height: 112px; }
+.auto-chart.mittel { height: 160px; }
+.auto-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.auto-kopf { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.auto-regler-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.auto-regler { display: flex; flex-direction: column; gap: 6px; }
+.auto-regler input[type='range'] { width: 100%; accent-color: var(--c-ki); }
+.auto-regler-ende { display: flex; justify-content: space-between; font-size: 11px; }
+.auto-liste { margin: 6px 0 0; padding-left: 18px; }
+.auto-anders td { background: var(--sun-bg); }
+.auto-links td, .auto-links th { text-align: left !important; vertical-align: top; }
+.auto-wirkung td, .auto-wirkung th { text-align: left !important; vertical-align: top; white-space: nowrap; }
+.auto-wirkung td:nth-child(3) { white-space: normal; min-width: 12rem; }
+.good-text { color: var(--green); }
+.bad-text { color: var(--rose); }
+.auto-zeitleiste { border-collapse: separate; border-spacing: 2px; font-size: 12px; }
+.auto-zeitleiste td:first-child { white-space: nowrap; padding-right: 8px; }
+.auto-zeitleiste .kast { width: 12px; height: 16px; border-radius: 3px; background: var(--neutral-bg); }
+.auto-zeitleiste .kast.an { background: var(--c-heiz); }
+.auto-zeitleiste .zeit { font-size: 10px; color: var(--muted); vertical-align: top; }
+.auto-details { border-top: 1px solid var(--line); padding-top: 12px; }
+@media (max-width: 760px) {
+  .auto-2, .auto-regler-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  .tab-lang { display: none; }
+  .tab-kurz { display: inline; }
+  .auto-chart { height: 220px; }
+}
