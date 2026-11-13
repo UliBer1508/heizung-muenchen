@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from './supabase.js';
 import { Klappkarte } from './Klapp.jsx';
+import Datensicherung from './Datensicherung.jsx';
 
 const HOUSE_FIELDS = [
   { group: 'Tagesablauf', fields: [
@@ -415,6 +416,8 @@ export default function Settings({ data, reload }) {
       </Klappkarte>
 
       <Strompreis setMsg={setMsg} />
+
+      <Datensicherung />
 
       {rooms.map((r) => (
         <Klappkarte key={r.id} id={`einstellungen-raum-${r.id}`} titel={r.name} standardAuf={false}
