@@ -10,8 +10,12 @@
 //  - nur lesen: Sicherung aktiv / Aufbewahrung / Warnschwelle gelten für beide Apps
 //    und werden in der Venediger-App eingestellt (system_settings.backup_settings);
 //    die München-App schreibt weiterhin nur in muc_*-Tabellen.
-//  - Stand je Rechner: Es können zwei PCs sichern (München + Österreich). Rot erst,
-//    wenn KEIN Rechner rechtzeitig gesichert hat; gelb, wenn nur einer ausbleibt.
+//  - Stand je Rechner: PC München sichert jede Nacht. PC Österreich ist ERSATZ
+//    (Skript v5, config.json "StandbyHours"): Er sichert nur, wenn kein anderer
+//    Rechner in den letzten StandbyHours erfolgreich war, und meldet sich sonst nur
+//    mit einem Lebenszeichen in system_settings.backup_standby.
+//    Rot: keine gelungene Sicherung innerhalb der Warnschwelle.
+//    Gelb: Ersatz ist eingesprungen (Hauptrechner prüfen) oder Ersatz meldet sich nicht.
 //
 // Doku: doc/DATENSICHERUNG.md
 import { useEffect, useState } from 'react';
@@ -36,7 +40,7 @@ export function rechnerName(host) {
   if (!host) return 'unbekannter Rechner';
   const h = host.toUpperCase();
   if (h.includes('WEIDMANN')) return 'PC München';
-  if (h.includes('VENEDIGER')) return 'PC Österreich';
+  if (h.includes('VENEDIG')) return 'PC Österreich'; // Windows kürzt auf 15 Zeichen: MINIPC-VENEDIGE
   return host;
 }
 
@@ -79,10 +83,40 @@ export function standJeRechner(runs, warnStunden, jetzt = Date.now()) {
   }));
 }
 
+// Gesamturteil mit Ersatz-Rechner. standby = system_settings.backup_standby (oder null).
+export function bewerten(runs, standby, warnStunden, jetzt = Date.now()) {
+  const alt = (ts) => !ts || (jetzt - new Date(ts)) / 36e5 > warnStunden;
+  const rechner = standJeRechner(runs, warnStunden, jetzt);
+  const ersatzHost = standby?.host || null;
+  let ersatz = null;
+  if (ersatzHost) {
+    ersatz = rechner.find((r) => r.host === ersatzHost) || { host: ersatzHost, letzter: null, gelungen: null };
+    if (!rechner.includes(ersatz)) rechner.push(ersatz);
+    ersatz.ersatz = true;
+    ersatz.beat = standby;
+    const zeiten = [standby.checked_at, ersatz.letzter?.finished_at].filter(Boolean).map((t) => new Date(t).getTime());
+    ersatz.zuletztGemeldet = zeiten.length ? new Date(Math.max(...zeiten)).toISOString() : null;
+  }
+  const haupt = rechner.filter((r) => !r.ersatz);
+  const neueste = runs.find(gelungen) || null;
+  const rot = alt(neueste?.finished_at);
+  const gelb = [];
+  if (!rot) {
+    for (const h of haupt) {
+      if (h.ueberfaellig) gelb.push(`${rechnerName(h.host)} hat seit mehr als ${warnStunden} h nicht gesichert${ersatz ? ` – ${rechnerName(ersatz.host)} ist eingesprungen` : ''}. Die Daten sind gesichert, ${rechnerName(h.host)} bitte prüfen.`);
+    }
+  }
+  if (ersatz && alt(ersatz.zuletztGemeldet)) {
+    gelb.push(`${rechnerName(ersatz.host)} (Ersatz) meldet sich seit mehr als ${warnStunden} h nicht – fällt der Hauptrechner aus, sichert niemand. Bitte prüfen.`);
+  }
+  return { rechner, ersatz, neueste, rot, gelb };
+}
+
 export default function Datensicherung() {
   const [runs, setRuns] = useState(null);
   const [cfg, setCfg] = useState(DEFAULTS);
   const [err, setErr] = useState(null);
+  const [standby, setStandby] = useState(null);
 
   useEffect(() => {
     const seit = new Date(Date.now() - 14 * 864e5).toISOString();
@@ -90,7 +124,9 @@ export default function Datensicherung() {
       supabase.from('backup_runs').select('*').gte('finished_at', seit)
         .order('finished_at', { ascending: false }).limit(60),
       supabase.from('system_settings').select('value').eq('key', 'backup_settings').maybeSingle(),
-    ]).then(([a, b]) => {
+      supabase.from('system_settings').select('value').eq('key', 'backup_standby').maybeSingle(),
+    ]).then(([a, b, c]) => {
+      setStandby(c.data?.value ?? null);
       setErr(a.error?.message ?? null);
       setRuns(a.data || []);
       if (b.data?.value) setCfg({ ...DEFAULTS, ...b.data.value });
@@ -102,10 +138,8 @@ export default function Datensicherung() {
   }
 
   const warn = Number(cfg.warn_after_hours) || DEFAULTS.warn_after_hours;
-  const rechner = standJeRechner(runs, warn);
-  const allesAlt = cfg.enabled && rechner.every((r) => r.ueberfaellig);
-  const einerAlt = cfg.enabled && !allesAlt && rechner.length > 1 && rechner.some((r) => r.ueberfaellig);
-  const neueste = runs.find(gelungen);
+  const { rechner, neueste, rot, gelb } = bewerten(runs, standby, warn);
+  const allesAlt = cfg.enabled && rot;
 
   const sum = err
     ? 'Protokoll nicht lesbar'
@@ -114,7 +148,7 @@ export default function Datensicherung() {
       : allesAlt
         ? '⚠ keine aktuelle Sicherung'
         : neueste
-          ? `zuletzt ${vor(neueste.finished_at)} · ${rechner.length} Rechner`
+          ? `zuletzt ${vor(neueste.finished_at)} · ${rechnerName(neueste.host)}${gelb.length ? ' · ⚠' : ''}`
           : 'noch keine Sicherung';
 
   return (
@@ -137,12 +171,7 @@ export default function Datensicherung() {
               Bitte die Sicherungs-PCs prüfen: eingeschaltet? Aufgabenplanung „Supabase-Sicherung Heizung“ gelaufen?
             </div>
           )}
-          {einerAlt && (
-            <div className="notice-warn small">
-              {rechner.filter((r) => r.ueberfaellig).map((r) => rechnerName(r.host)).join(', ')} hat seit mehr als {warn} h nicht gesichert –
-              der andere Rechner hat übernommen. Die Daten sind gesichert, der Rechner sollte aber geprüft werden.
-            </div>
-          )}
+          {cfg.enabled && gelb.map((t, i) => <div key={i} className="notice-warn small">{t}</div>)}
 
           {rechner.length === 0 ? (
             <div className="muted small">In den letzten 14 Tagen wurde keine Sicherung gemeldet.</div>
@@ -152,8 +181,12 @@ export default function Datensicherung() {
               <tbody>
                 {rechner.map((r) => (
                   <tr key={r.host || '?'}>
-                    <td>{rechnerName(r.host)}<div className="muted small mono">{r.host}</div></td>
-                    <td>{STATUS_ICON[r.letzter.status]} {STATUS_LABEL[r.letzter.status] || r.letzter.status}<div className="muted small">{wann(r.letzter.finished_at)}</div></td>
+                    <td>{rechnerName(r.host)}<div className="muted small">{r.ersatz ? 'Ersatz – sichert nur, wenn nötig' : 'sichert jede Nacht'}</div><div className="muted small mono">{r.host}</div></td>
+                    {r.ersatz && r.beat?.result === 'uebersprungen' && (!r.letzter || new Date(r.beat.checked_at) > new Date(r.letzter.finished_at)) ? (
+                      <td>⏸ Übersprungen<div className="muted small">{wann(r.beat.checked_at)} · {rechnerName(r.beat.main_host)} hatte gesichert</div></td>
+                    ) : r.letzter ? (
+                      <td>{STATUS_ICON[r.letzter.status]} {STATUS_LABEL[r.letzter.status] || r.letzter.status}<div className="muted small">{wann(r.letzter.finished_at)}{r.ersatz ? ' · eingesprungen' : ''}</div></td>
+                    ) : <td>–</td>}
                     <td>{r.gelungen ? <>{wann(r.gelungen.finished_at)}<div className="muted small">{vor(r.gelungen.finished_at)}</div></> : '–'}</td>
                     <td>{r.gelungen ? <>{formatBytes(r.gelungen.db_bytes)}<div className="muted small">{r.gelungen.table_count ?? '–'} Tabellen</div></> : '–'}</td>
                   </tr>
