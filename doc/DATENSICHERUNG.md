@@ -29,7 +29,7 @@
 | Rechner | Seit | Uhrzeit |
 |---|---|---|
 | PC München (`MINIPC-WEIDMANN`) | 30.09.2026 | 03:45 eingestellt – seit Zeitumstellung tatsächlich **02:45** (Aufgabe hängt an UTC) |
-| PC Österreich (minipc-venediger) | geplant | als zweiter Ausführender, siehe unten |
+| PC Österreich (`MINIPC-VENEDIGE`, Windows kürzt auf 15 Zeichen) | 13.11.2026 | 04:15 · eigener Ordner `OneDrive\Backups\Supabase-Heizung-Oesterreich` |
 
 ## In der App
 
