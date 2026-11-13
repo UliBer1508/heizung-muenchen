@@ -36,7 +36,7 @@ export function rechnerName(host) {
   if (!host) return 'unbekannter Rechner';
   const h = host.toUpperCase();
   if (h.includes('WEIDMANN')) return 'PC München';
-  if (h.includes('VENEDIGER')) return 'PC Österreich';
+  if (h.includes('VENEDIG')) return 'PC Österreich'; // Windows kürzt auf 15 Zeichen: MINIPC-VENEDIGE
   return host;
 }
 
