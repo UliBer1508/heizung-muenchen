@@ -482,3 +482,26 @@ select, input[type='number'], input[type='time'], input[type='email'], input[typ
   .tab-kurz { display: inline; }
   .auto-chart { height: 220px; }
 }
+
+/* Datensicherung: je PC eine Karte, Verlauf – gleiche Darstellung wie Heizung Venediger (13.11.2026) */
+.sich-pcs { gap: 12px; margin-top: 10px; }
+.sich-pc { border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.sich-kopf { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.sich-name { font-weight: 500; font-size: 15px; }
+.sich-werte { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; margin: 14px 0 0; font-size: 14px; }
+.sich-werte .voll { grid-column: 1 / -1; }
+.sich-werte dt { color: var(--muted); }
+.sich-werte dd { margin: 2px 0 0; font-variant-numeric: tabular-nums; }
+.sich-ordner { word-break: break-all; }
+.sich-verlauf { margin-top: 12px; }
+.sich-verlauf .sich-name { margin-bottom: 8px; }
+.sich-zeile { display: grid; grid-template-columns: 1fr auto 70px; gap: 12px; padding: 3px 0; font-size: 14px; font-variant-numeric: tabular-nums; }
+.sich-zeile > span { white-space: nowrap; }
+.sich-zeile > span:last-child { text-align: right; }
+@media (max-width: 640px) { .sich-zeile { gap: 8px; grid-template-columns: 1fr auto 62px; } }
+.sich-punkt { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; vertical-align: middle; background: var(--muted); }
+.sich-punkt.erfolgreich { background: var(--green); }
+.sich-punkt.warnungen { background: var(--sun); }
+.sich-punkt.fehlgeschlagen { background: var(--rose); }
+.grid-2.sich-pcs { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+@media (max-width: 760px) { .grid-2.sich-pcs { grid-template-columns: 1fr; } }
