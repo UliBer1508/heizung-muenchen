@@ -17,6 +17,7 @@
 //    Rot: keine gelungene Sicherung innerhalb der Warnschwelle.
 //    Gelb: Ersatz ist eingesprungen (Hauptrechner prüfen) oder Ersatz meldet sich nicht.
 //
+// Darstellung (13.11.2026): je PC eine Karte, darunter Verlauf – gleich wie Venediger.
 // Doku: doc/DATENSICHERUNG.md
 import { useEffect, useState } from 'react';
 import { supabase } from './supabase.js';
@@ -56,10 +57,12 @@ export function formatBytes(bytes) {
   return `${v.toLocaleString('de-DE', { minimumFractionDigits: d, maximumFractionDigits: d })} ${units[i]}`;
 }
 
-const wann = (ts) =>
-  new Date(ts).toLocaleString('de-DE', {
-    weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin',
-  });
+// Gleiche Schreibweise wie Venediger (date-fns „EEEEEE dd.MM. HH:mm“): Fr 13.11. 08:41
+const teile = (ts) => Object.fromEntries(new Intl.DateTimeFormat('de-DE', {
+  weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin',
+}).formatToParts(new Date(ts)).map((p) => [p.type, p.value]));
+const wann = (ts) => { const t = teile(ts); return `${t.weekday.replace('.', '')} ${t.day}.${t.month}. ${t.hour}:${t.minute}`; };
+const wannLang = (ts) => { const t = teile(ts); return `${t.weekday.replace('.', '')} ${t.day}.${t.month}.${t.year} um ${t.hour}:${t.minute}`; };
 
 const vor = (ts) => {
   const h = (Date.now() - new Date(ts)) / 36e5;
@@ -176,55 +179,66 @@ export default function Datensicherung() {
           {rechner.length === 0 ? (
             <div className="muted small">In den letzten 14 Tagen wurde keine Sicherung gemeldet.</div>
           ) : (
-            <table className="ptable">
-              <thead><tr><th>Rechner</th><th>Letzter Lauf</th><th>Letzte gelungene</th><th>Größe</th></tr></thead>
-              <tbody>
-                {rechner.map((r) => (
-                  <tr key={r.host || '?'}>
-                    <td>{rechnerName(r.host)}<div className="muted small">{r.ersatz ? 'Ersatz – sichert nur, wenn nötig' : 'sichert jede Nacht'}</div><div className="muted small mono">{r.host}</div></td>
-                    {r.ersatz && r.beat?.result === 'uebersprungen' && (!r.letzter || new Date(r.beat.checked_at) > new Date(r.letzter.finished_at)) ? (
-                      <td>⏸ Übersprungen<div className="muted small">{wann(r.beat.checked_at)} · {rechnerName(r.beat.main_host)} hatte gesichert</div></td>
-                    ) : r.letzter ? (
-                      <td>{STATUS_ICON[r.letzter.status]} {STATUS_LABEL[r.letzter.status] || r.letzter.status}<div className="muted small">{wann(r.letzter.finished_at)}{r.ersatz ? ' · eingesprungen' : ''}</div></td>
-                    ) : <td>–</td>}
-                    <td>{r.gelungen ? <>{wann(r.gelungen.finished_at)}<div className="muted small">{vor(r.gelungen.finished_at)}</div></> : '–'}</td>
-                    <td>{r.gelungen ? <>{formatBytes(r.gelungen.db_bytes)}<div className="muted small">{r.gelungen.table_count ?? '–'} Tabellen</div></> : '–'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            // Je PC eine Karte – gleiche Darstellung wie Heizung Venediger (BackupSettingsSection.tsx, 13.11.2026)
+            <div className="grid-2 sich-pcs">
+              {[...rechner].sort((x, y) => Number(!!x.ersatz) - Number(!!y.ersatz)).map((r) => {
+                const skip = r.ersatz && r.beat?.result === 'uebersprungen' &&
+                  (!r.letzter || new Date(r.beat.checked_at) > new Date(r.letzter.finished_at));
+                return (
+                  <div key={r.host || '?'} className="sich-pc">
+                    <div className="sich-kopf">
+                      <div>
+                        <div className="sich-name">{rechnerName(r.host)}</div>
+                        <div className="muted small">{r.ersatz ? 'Ersatz – sichert nur, wenn nötig' : 'sichert jede Nacht'}</div>
+                        <div className="muted mono">{r.host}</div>
+                      </div>
+                      {skip ? <span className="pill neutral">⏸ Übersprungen</span>
+                        : r.letzter ? <span className={`pill ${r.letzter.status === 'erfolgreich' ? 'green' : r.letzter.status === 'fehlgeschlagen' ? 'rose' : r.letzter.status === 'warnungen' ? 'sun' : 'neutral'}`}>{STATUS_LABEL[r.letzter.status] || r.letzter.status}</span>
+                        : null}
+                    </div>
+                    <dl className="sich-werte">
+                      <div className="voll">
+                        <dt>Letzter Lauf</dt>
+                        <dd>{skip ? `${wannLang(r.beat.checked_at)} · ${rechnerName(r.beat.main_host)} hatte gesichert`
+                          : r.letzter ? `${wannLang(r.letzter.finished_at)}${r.ersatz ? ' · eingesprungen' : ''}` : '–'}</dd>
+                      </div>
+                      <div><dt>Letzte gelungene</dt><dd>{r.gelungen ? vor(r.gelungen.finished_at) : '–'}</dd></div>
+                      <div><dt>Datenbank</dt><dd>{r.gelungen ? `${formatBytes(r.gelungen.db_bytes)} · ${r.gelungen.table_count ?? '–'} Tabellen` : '–'}</dd></div>
+                      <div><dt>Uhrzeit</dt><dd>{r.letzter?.schedule_time ? `täglich ${r.letzter.schedule_time}` : '–'}</dd></div>
+                      <div><dt>Ordner</dt><dd className="sich-ordner">{r.gelungen?.backup_folder ?? '–'}</dd></div>
+                    </dl>
+                  </div>
+                );
+              })}
+            </div>
           )}
+
+          {runs[0]?.messages?.length > 0 && (
+            <ul className="muted small">{runs[0].messages.map((m, i) => <li key={i}>{m}</li>)}</ul>
+          )}
+
+          <div style={{ marginTop: 12 }}>
+            <a className="btn" style={{ display: 'inline-block', textDecoration: 'none', color: 'inherit' }}
+              href="https://onedrive.live.com/" target="_blank" rel="noopener noreferrer">↗ Sicherungen im OneDrive öffnen</a>
+          </div>
 
           {runs.length > 0 && (
-            <>
-              <div className="eyebrow">Verlauf (letzte 14 Tage)</div>
-              <table className="ptable">
-                <tbody>
-                  {runs.slice(0, 14).map((r) => (
-                    <tr key={r.id}>
-                      <td>{STATUS_ICON[r.status]} {wann(r.finished_at)}</td>
-                      <td>{rechnerName(r.host)}</td>
-                      <td className="muted small">{gelungen(r) ? formatBytes(r.db_bytes) : STATUS_LABEL[r.status]}</td>
-                      <td className="muted small mono">{r.backup_folder || ''}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {runs[0].messages?.length > 0 && (
-                <ul className="muted small">{runs[0].messages.map((m, i) => <li key={i}>{m}</li>)}</ul>
-              )}
-            </>
+            <div className="sich-pc sich-verlauf">
+              <div className="sich-name">Verlauf (letzte 14 Tage)</div>
+              {runs.slice(0, 14).map((r) => (
+                <div key={r.id} className="sich-zeile">
+                  <span><span className={`sich-punkt ${r.status}`} />{wann(r.finished_at)}</span>
+                  <span className="muted">{rechnerName(r.host)}</span>
+                  <span className="muted">{gelungen(r) ? formatBytes(r.db_bytes) : STATUS_LABEL[r.status]}</span>
+                </div>
+              ))}
+            </div>
           )}
 
-          <div className="muted small">
+          <div className="muted small" style={{ marginTop: 12 }}>
             Einstellungen (gelten für München und Venediger, änderbar in der Venediger-App): Sicherung {cfg.enabled ? 'aktiv' : 'pausiert'} ·
             {' '}aufbewahren {cfg.retention_days} Tage · warnen nach {warn} h.
             {' '}Ablage: <span className="mono">OneDrive\Backups\Supabase-Heizung\</span>
-          </div>
-          {/* eigener Block mit Abstand: ein Inline-Link mit Polster lag über der Zeile darüber */}
-          <div style={{ marginTop: 10 }}>
-            <a className="btn" style={{ display: 'inline-block', textDecoration: 'none', color: 'inherit' }}
-              href="https://onedrive.live.com/" target="_blank" rel="noopener noreferrer">Sicherungen im OneDrive öffnen</a>
           </div>
         </>
       )}

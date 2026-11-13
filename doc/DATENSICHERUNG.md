@@ -39,13 +39,15 @@ in `backup_runs`, ob ein **anderer** Rechner in den letzten 20 Stunden erfolgrei
 - Prüfung nicht möglich (Netz, Passwort) → sicherheitshalber sichern.
 
 Ohne `StandbyHours` verhält sich das Skript wie v4 – PC München und Hausverwaltung bleiben unverändert.
-Es gibt keinen neuen Status in `backup_runs`; Venediger-App und Hausverwaltung brauchen deshalb keine Änderung.
+Es gibt keinen neuen Status in `backup_runs`. Die Venediger-App zeigt seit 13.11.2026 (Version 2.28.0) ebenfalls beide PCs.
 
 ## In der App
 
 Einstellungen → **Datensicherung** (`frontend/src/Datensicherung.jsx`):
 
 - Stand **je Rechner**: letzter Lauf, letzte gelungene Sicherung, Größe, Tabellen; beim Ersatz „⏸ Übersprungen“ mit Uhrzeit.
+- Darstellung seit 13.11.2026 **gleich wie Venediger**: je PC eine Karte (Rolle, Status, letzter Lauf, letzte gelungene,
+  Datenbank, Uhrzeit, Ordner), darunter Verlauf 14 Tage mit Rechner je Lauf.
 - **Rot**, wenn innerhalb der Warnschwelle (Standard 30 h) *keine* gelungene Sicherung vorliegt.
 - **Gelb**, wenn der Hauptrechner ausbleibt und der Ersatz eingesprungen ist (Daten gesichert, PC München prüfen),
   oder wenn sich der Ersatz länger als die Warnschwelle nicht meldet (dann sichert niemand, falls München ausfällt).
