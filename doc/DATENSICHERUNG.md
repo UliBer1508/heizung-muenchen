@@ -1,6 +1,6 @@
 # Datensicherung – Heizung München
 
-> Stand: 13.11.2026 · Supabase-Projekt `pflnniklvqbwjwrjswaz` (gemeinsam mit Venediger)
+> Stand: 13.11.2026 (Ersatz-Rechner) · Supabase-Projekt `pflnniklvqbwjwrjswaz` (gemeinsam mit Venediger)
 > Vorbild: Venediger `doc/DATENSICHERUNG.md`
 
 ## Grundsatz
@@ -26,18 +26,29 @@
 
 ## Wer sichert
 
-| Rechner | Seit | Uhrzeit |
-|---|---|---|
-| PC München (`MINIPC-WEIDMANN`) | 30.09.2026 | 03:45 eingestellt – seit Zeitumstellung tatsächlich **02:45** (Aufgabe hängt an UTC) |
-| PC Österreich (`MINIPC-VENEDIGE`, Windows kürzt auf 15 Zeichen) | 13.11.2026 | 04:15 · eigener Ordner `OneDrive\Backups\Supabase-Heizung-Oesterreich` |
+| Rechner | Rolle | Uhrzeit | Ordner |
+|---|---|---|---|
+| PC München (`MINIPC-WEIDMANN`) | **Hauptrechner** – sichert jede Nacht | 03:45 eingestellt, seit Zeitumstellung tatsächlich **02:45** (Aufgabe hängt an UTC) | `OneDrive\Backups\Supabase-Heizung` |
+| PC Österreich (`MINIPC-VENEDIGE`, Windows kürzt auf 15 Zeichen) | **Ersatz** – sichert nur, wenn nötig | 04:15 | `OneDrive\Backups\Supabase-Heizung-Oesterreich` |
+
+**Ersatz-Regel (Skript v5, 13.11.2026):** Steht in `config.json` des Profils `"StandbyHours": 20`, prüft der PC vor dem Sichern
+in `backup_runs`, ob ein **anderer** Rechner in den letzten 20 Stunden erfolgreich gesichert hat.
+- Ja → **keine** Sicherung, **keine** Zeile in `backup_runs`, nur ein Lebenszeichen in `system_settings.backup_standby`
+  (`host`, `checked_at`, `result = uebersprungen`, `main_host`, `main_finished`). `LETZTE-SICHERUNG.txt` zeigt „ÜBERSPRUNGEN“.
+- Nein → normale Sicherung (springt ein), Lebenszeichen mit `result = gesichert`.
+- Prüfung nicht möglich (Netz, Passwort) → sicherheitshalber sichern.
+
+Ohne `StandbyHours` verhält sich das Skript wie v4 – PC München und Hausverwaltung bleiben unverändert.
+Es gibt keinen neuen Status in `backup_runs`; Venediger-App und Hausverwaltung brauchen deshalb keine Änderung.
 
 ## In der App
 
 Einstellungen → **Datensicherung** (`frontend/src/Datensicherung.jsx`):
 
-- Stand **je Rechner**: letzter Lauf, letzte gelungene Sicherung, Größe, Tabellen.
-- **Rot**, wenn *kein* Rechner innerhalb der Warnschwelle (Standard 30 h) gesichert hat.
-- **Gelb**, wenn einer von mehreren Rechnern ausbleibt – die Daten sind dann trotzdem gesichert.
+- Stand **je Rechner**: letzter Lauf, letzte gelungene Sicherung, Größe, Tabellen; beim Ersatz „⏸ Übersprungen“ mit Uhrzeit.
+- **Rot**, wenn innerhalb der Warnschwelle (Standard 30 h) *keine* gelungene Sicherung vorliegt.
+- **Gelb**, wenn der Hauptrechner ausbleibt und der Ersatz eingesprungen ist (Daten gesichert, PC München prüfen),
+  oder wenn sich der Ersatz länger als die Warnschwelle nicht meldet (dann sichert niemand, falls München ausfällt).
 - Verlauf der letzten 14 Tage.
 - **Nur lesen.** Aktiv/Pausieren, Aufbewahrung und Warnschwelle gelten für beide Apps und werden in der
   **Venediger-App** eingestellt (Einstellungen → Datensicherung). Die München-App schreibt weiterhin nur in `muc_*`.
@@ -70,4 +81,5 @@ Ausführliche Anleitung (komplette Wiederherstellung): Hausverwaltung, `docs/Dat
 |---|---|
 | Datenbank-Passwort geändert | `.\Set-DbPassword.ps1 -Profil Heizung` (auf **jedem** sichernden PC) |
 | Sicherung sofort starten | Aufgabenplanung → „Supabase-Sicherung Heizung“ → Ausführen |
+| Lebenszeichen Ersatz | `select value from system_settings where key = 'backup_standby';` |
 | Kontrolle in Supabase | `select host, max(finished_at), count(*) from backup_runs group by host;` |
