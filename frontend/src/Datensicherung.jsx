@@ -221,7 +221,11 @@ export default function Datensicherung() {
             {' '}aufbewahren {cfg.retention_days} Tage · warnen nach {warn} h.
             {' '}Ablage: <span className="mono">OneDrive\Backups\Supabase-Heizung\</span>
           </div>
-          <a className="btn" href="https://onedrive.live.com/" target="_blank" rel="noopener noreferrer">Sicherungen im OneDrive öffnen</a>
+          {/* eigener Block mit Abstand: ein Inline-Link mit Polster lag über der Zeile darüber */}
+          <div style={{ marginTop: 10 }}>
+            <a className="btn" style={{ display: 'inline-block', textDecoration: 'none', color: 'inherit' }}
+              href="https://onedrive.live.com/" target="_blank" rel="noopener noreferrer">Sicherungen im OneDrive öffnen</a>
+          </div>
         </>
       )}
     </Klappkarte>
