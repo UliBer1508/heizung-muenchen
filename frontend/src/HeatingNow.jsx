@@ -71,6 +71,39 @@ function useHeatToday(energyTs) {
   return k;
 }
 
+// 22.11.2026 (Uli: „Warum gibt es nicht Woche, Monat, Jahr?“): Heizstrom auch für die laufende Woche, den Monat und
+// das Jahr – Tageswerte bis gestern (muc_heizstrom_seit, migration-015) plus heute live (muc_day_kpis).
+const ZR = [['heute', 'Heute'], ['woche', 'Woche'], ['monat', 'Monat'], ['jahr', 'Jahr']];
+function zrBeginn(z) {
+  const t = todayBerlin();
+  if (z === 'monat') return `${t.slice(0, 8)}01`;
+  if (z === 'jahr') return `${t.slice(0, 5)}01-01`;
+  const d = new Date(`${t}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+  return d.toISOString().slice(0, 10);
+}
+const dmy = (iso) => `${iso.slice(8, 10)}.${iso.slice(5, 7)}.`;
+function useHeatPeriod(z, today) {
+  const [k, setK] = useState(null);
+  const von = z === 'heute' ? null : zrBeginn(z);
+  useEffect(() => {
+    let alive = true;
+    if (!von) { setK(null); return undefined; }
+    setK(undefined);
+    supabase.rpc('muc_heizstrom_seit', { p_von: von }).then(({ data, error }) => {
+      if (alive) setK(error ? { fehler: error.message } : data);
+    });
+    return () => { alive = false; };
+  }, [von]);
+  if (!von) return { von: null, w: today, tage: 1 };
+  if (!k || k.fehler) return { von, w: null, fehler: k?.fehler, tage: 0 };
+  const add = (f) => Number(k[f] ?? 0) + Number(today?.[f] ?? 0);
+  return {
+    von, tage: Number(k.tage ?? 0) + (today ? 1 : 0), ab: k.von,
+    w: { heat_kwh: add('heat_kwh'), heat_pv_kwh: add('heat_pv_kwh'), heat_bat_kwh: add('heat_bat_kwh'), heat_grid_kwh: add('heat_grid_kwh') },
+  };
+}
+
 export default function HeatingNow({ data }) {
   const { energy: e, settings, rooms, latestByRoom } = data;
   const base = settings?.baseload_w ?? 350;
@@ -82,6 +115,12 @@ export default function HeatingNow({ data }) {
   );
   const since = useOpenSince(open.map((r) => r.id));
   const today = useHeatToday(e?.ts);
+  const [zr, setZr] = useState('heute');
+  const per = useHeatPeriod(zr, today);
+  const zrName = { heute: 'heute', woche: 'diese Woche', monat: 'diesen Monat', jahr: 'dieses Jahr' }[zr];
+  const zrSeit = zr === 'heute' ? 'seit 0:00'
+    : per.ab ? `seit ${dmy(per.ab)}${per.ab > per.von ? ` (Daten erst ab ${dmy(per.ab)})` : ''} · ${per.tage} ${per.tage === 1 ? 'Tag' : 'Tage'}`
+      : `seit ${dmy(per.von)}`;
 
   // Wärmepumpe jetzt (geschätzt) und Herkunft – gleiche Rechnung wie muc_energy_rows
   const cons = e?.consumption_w ?? null;
@@ -123,9 +162,14 @@ export default function HeatingNow({ data }) {
           <div className="muted small">Netzgrenze {cap} Kreise · mit Überschuss mehr</div>
         </div>
         <div>
-          <div className="eyebrow">Heizstrom heute</div>
-          <div className="tile-value">{kwh(today?.heat_kwh)}</div>
-          <div className="muted small">geschätzt, seit 0:00</div>
+          <div className="eyebrow">Heizstrom {zrName}</div>
+          <div className="tile-value">{per.fehler ? '–' : kwh(per.w?.heat_kwh)}</div>
+          <div className="muted small">{per.fehler ? 'Bitte supabase/migration-015-wo-stehen-wir.sql ausführen.' : `geschätzt, ${zrSeit}`}</div>
+          <div className="seg seg-4 heat-zr" role="group" aria-label="Zeitraum Heizstrom">
+            {ZR.map(([k, l]) => (
+              <button key={k} type="button" className={zr === k ? 'seg-btn active' : 'seg-btn'} aria-pressed={zr === k} onClick={() => setZr(k)}>{l}</button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -147,9 +191,10 @@ export default function HeatingNow({ data }) {
         </div>
       )}
 
-      {today?.heat_kwh != null && (
+      {per.w?.heat_kwh != null && (
         <div className="heatnow-foot muted small">
-          Heute {kwh(today.heat_kwh)} Heizstrom: Sonne {kwh(today.heat_pv_kwh)} · Akku {kwh(today.heat_bat_kwh)} · Netz {kwh(today.heat_grid_kwh)}.
+          {zr === 'heute' ? 'Heute' : `${zrName[0].toUpperCase()}${zrName.slice(1)}`} {kwh(per.w.heat_kwh)} Heizstrom: Sonne {kwh(per.w.heat_pv_kwh)} · Akku {kwh(per.w.heat_bat_kwh)} · Netz {kwh(per.w.heat_grid_kwh)}.
+          {zr !== 'heute' && ' Tage bis gestern aus den gespeicherten Tageswerten, heute live.'}
           {' '}Die Wärmepumpe wird nicht gemessen – Schätzung aus Verbrauch − Auto − Grundlast {fmtW(base)} (Einstellung „Grundlast Haus“).
         </div>
       )}

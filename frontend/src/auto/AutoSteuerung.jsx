@@ -10,6 +10,7 @@ import { supabase } from '../supabase.js';
 import { useAufZu } from '../Klapp.jsx';
 import Verlauf from './Verlauf.jsx';
 import Plan from './Plan.jsx';
+import WoStehenWir from './WoStehenWir.jsx';
 import { num } from './teile.jsx';
 
 function Abschnitt({ id, nr, titel, frage, children }) {
@@ -136,13 +137,17 @@ function Steuerung({ data, reload, kiOffen, onNavigate }) {
 export default function AutoSteuerung({ data, reload, kiOffen, onNavigate }) {
   return (
     <div className="stack">
-      <Abschnitt id="auto-verlauf" nr={1} titel="Verlauf und Wirkung" frage="Wird es besser – Netz, Haus, Batterie, Kosten – und was haben die KI-Vorschläge bewirkt?">
+      {/* 22.11.2026: „Wo stehen wir?“ wie Venediger als erster Abschnitt (Woche/Monat/Jahr, Stand, Vergleich) */}
+      <Abschnitt id="auto-wo" nr={1} titel="Wo stehen wir?" frage="Was braucht die Heizung, was spart die Sonne – je Woche, Monat, Jahr – und wohin wollen wir?">
+        <WoStehenWir onNavigate={onNavigate} />
+      </Abschnitt>
+      <Abschnitt id="auto-verlauf" nr={2} titel="Verlauf und Wirkung" frage="Wird es besser – Netz, Haus, Batterie, Kosten – und was haben die KI-Vorschläge bewirkt?">
         <Verlauf settings={data.settings} />
       </Abschnitt>
-      <Abschnitt id="auto-steuerung" nr={2} titel="Steuerung" frage="Wer entscheidet – und wie greife ich ein?">
+      <Abschnitt id="auto-steuerung" nr={3} titel="Steuerung" frage="Wer entscheidet – und wie greife ich ein?">
         <Steuerung data={data} reload={reload} kiOffen={kiOffen} onNavigate={onNavigate} />
       </Abschnitt>
-      <Abschnitt id="auto-plan" nr={3} titel="Plan" frage="Was macht der Planer in den nächsten 24 Stunden?">
+      <Abschnitt id="auto-plan" nr={4} titel="Plan" frage="Was macht der Planer in den nächsten 24 Stunden?">
         <Plan rooms={data.rooms || []} />
       </Abschnitt>
     </div>
