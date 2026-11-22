@@ -228,6 +228,9 @@ Seit 0.5 heißen die Spalten in der App *Absenk / Normal / PV-Laden / Batterie v
   übernommen (`heizplaner-muenchen`, `modell.ts` unverändert), Schattenbetrieb mit täglicher Gegenrechnung; Tab
   *Auto-Steuerung* mit Verlauf und Wirkung, Steuerung, Plan. Ersetzt die Stufen B/C oben als Weg zur vorausschauenden
   Steuerung. Offen: Steuern freigeben, Warmwasser/Auto als eigene Last. `AUTO-STEUERUNG-2026-11-12.md`.
+- ✅ **„Wo stehen wir?“ wie Venediger (22.11.2026, migration-015):** Auto-Steuerung Abschnitt 1 mit Woche/Monat/Jahr,
+  Vergleich Vorperiode, Stand-Uhrzeit, Ampeln, Ziel kWh je Heizgradtag (selbst festlegen); Übersicht: Heizstrom Heute/Woche/
+  Monat/Jahr. Offen: Strompreis eintragen (sonst nur kWh). `WO-STEHEN-WIR.md`.
 
 ---
 
