@@ -5,9 +5,13 @@
 //   - system_hosts/services  Dienste je PC, gemeldet vom Dienste-Wächter alle 30 s
 //   - system_cloud_status()  Fronius-Daten, Thermostate Venediger, Cron, Function-Aufrufe
 //   - service_commands       Start/Stop/Neustart – nur Admins (system_status_admins), Fernzugriff nur Start
+//   - backup_runs + system_settings.backup_standby/backup_settings → Karte „Sicherungen“ unter
+//     „Alles läuft“ (23.11.2026, wie Heizung Venediger SystemBackupsCard.tsx). Urteil mit bewerten()
+//     aus Datensicherung.jsx; keine gelungene Sicherung in der Warnschwelle zählt im Symbol als Problem.
 import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from './supabase.js';
+import { bewerten, rechnerName, formatBytes } from './Datensicherung.jsx';
 
 const HOST_STALE_MS = 10 * 60 * 1000;
 
@@ -24,13 +28,46 @@ function ago(iso) {
   return h < 48 ? `vor ${h} h` : `seit ${fmtTime(iso)}`;
 }
 
+// Sicherung der Heizungs-Datenbank als eine Zeile (gleiche Texte wie sicherungKurz() in Venediger)
+function sicherungKurz(runs, standby, settings, jetzt = Date.now()) {
+  if (!runs) return { tone: 'off', text: 'Stand nicht abrufbar', problem: null };
+  if (settings && settings.enabled === false) return { tone: 'off', text: 'pausiert (Einstellungen › Datensicherung)', problem: null };
+  const warn = Number(settings?.warn_after_hours) || 30;
+  const { neueste, rot, gelb, ersatz } = bewerten(runs, standby, warn, jetzt);
+  const teile = [];
+  if (neueste) {
+    const std = Math.round((jetzt - new Date(neueste.finished_at)) / 36e5);
+    const wann = std < 1 ? 'vor weniger als 1 h' : std < 48 ? `vor ${std} h` : `vor ${Math.round(std / 24)} Tagen`;
+    teile.push(`zuletzt ${wann} · ${rechnerName(neueste.host)} · ${formatBytes(neueste.db_bytes)}`);
+  } else teile.push('keine gelungene Sicherung in 14 Tagen');
+  const skip = ersatz && ersatz.beat?.result === 'uebersprungen'
+    && (!ersatz.letzter || new Date(ersatz.beat.checked_at) > new Date(ersatz.letzter.finished_at));
+  if (skip) teile.push(`${rechnerName(ersatz.host)} übersprungen`);
+  if (gelb.length) teile.push(gelb[0]);
+  return {
+    tone: rot ? 'bad' : gelb.length ? 'warn' : 'ok',
+    text: teile.join(' · '),
+    problem: rot ? `Heizung: ${neueste ? `letzte gelungene Sicherung vor mehr als ${warn} h` : 'keine gelungene Sicherung'} – Sicherungs-PCs prüfen.` : null,
+  };
+}
+
+async function ladeSicherung() {
+  const seit = new Date(Date.now() - 14 * 864e5).toISOString();
+  const [r, s] = await Promise.all([
+    supabase.from('backup_runs').select('*').gte('finished_at', seit).order('finished_at', { ascending: false }).limit(60),
+    supabase.from('system_settings').select('key, value').in('key', ['backup_settings', 'backup_standby']),
+  ]);
+  const wert = (k) => (s.data || []).find((x) => x.key === k)?.value ?? null;
+  return sicherungKurz(r.error ? null : r.data || [], wert('backup_standby'), wert('backup_settings'));
+}
+
 function useSystemStatus(open) {
-  const [st, setSt] = useState({ ready: false, problems: [], hosts: [], services: [], commands: [], cloud: null, isAdmin: false, loadedAt: null });
+  const [st, setSt] = useState({ ready: false, problems: [], hosts: [], services: [], commands: [], cloud: null, isAdmin: false, loadedAt: null, backup: null });
 
   const load = useCallback(async () => {
-    const prob = await supabase.rpc('system_problems');
+    const [prob, backup] = await Promise.all([supabase.rpc('system_problems'), ladeSicherung()]);
     if (prob.error) { setSt((s) => ({ ...s, ready: false })); return; }
-    if (!open) { setSt((s) => ({ ...s, ready: true, problems: prob.data || [], loadedAt: new Date() })); return; }
+    if (!open) { setSt((s) => ({ ...s, ready: true, problems: prob.data || [], backup, loadedAt: new Date() })); return; }
     const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
     const [h, sv, c, cl, adm] = await Promise.all([
       supabase.from('system_hosts').select('*').order('host'),
@@ -41,7 +78,7 @@ function useSystemStatus(open) {
     ]);
     setSt({
       ready: true, problems: prob.data || [], hosts: h.data || [], services: sv.data || [], commands: c.data || [],
-      cloud: cl.data || null, isAdmin: adm.data === true, loadedAt: new Date(),
+      cloud: cl.data || null, isAdmin: adm.data === true, loadedAt: new Date(), backup,
     });
   }, [open]);
 
@@ -75,7 +112,7 @@ export default function SystemStatusButton() {
   const [open, setOpen] = useState(false);
   const st = useSystemStatus(open);
   if (!st.ready) return null;
-  const n = st.problems.length;
+  const n = st.problems.length + (st.backup?.problem ? 1 : 0);
   const label = n === 0 ? 'Alles läuft' : n === 1 ? '1 Problem' : `${n} Probleme`;
   return (
     <>
@@ -124,9 +161,20 @@ export function SystemStatusDialog({ st, onClose }) {
           <button className="btn ghost small" onClick={onClose} aria-label="Schließen">✕</button>
         </div>
 
-        {st.problems.length === 0
+        {st.problems.length === 0 && !st.backup?.problem
           ? <div className="sys-ok">Alles läuft.</div>
-          : <div className="alert">{st.problems.map((p) => <div key={p.key}><b>{p.area}:</b> {p.text}</div>)}</div>}
+          : <div className="alert">
+              {st.problems.map((p) => <div key={p.key}><b>{p.area}:</b> {p.text}</div>)}
+              {st.backup?.problem && <div><b>Sicherung:</b> {st.backup.problem}</div>}
+            </div>}
+
+        {/* Karte „Sicherungen“ direkt unter „Alles läuft“ (Uli, 23.11.2026) */}
+        <section className="sys-box">
+          <div className="sys-box-head"><span>Sicherungen</span><span className="small muted">jede Nacht · München, Österreich als Ersatz</span></div>
+          {st.backup
+            ? <Row tone={st.backup.tone} title="Heizung (Venediger + München)" sub={st.backup.text} />
+            : <Row tone="off" title="Heizung (Venediger + München)" sub="lädt …" />}
+        </section>
         {error && <div className="alert">{error}</div>}
 
         {pcs.length === 0 && <div className="muted small">Noch kein PC verbunden.</div>}

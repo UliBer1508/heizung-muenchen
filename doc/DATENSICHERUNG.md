@@ -55,6 +55,11 @@ Einstellungen → **Datensicherung** (`frontend/src/Datensicherung.jsx`):
 - **Nur lesen.** Aktiv/Pausieren, Aufbewahrung und Warnschwelle gelten für beide Apps und werden in der
   **Venediger-App** eingestellt (Einstellungen → Datensicherung). Die München-App schreibt weiterhin nur in `muc_*`.
 
+**Systemstatus (23.11.2026):** Im Systemstatus-Fenster steht unter „Alles läuft“ die Karte **„Sicherungen“**.
+Sie zeigt, wann zuletzt gesichert wurde, von welchem PC, mit welcher Größe und ob PC Österreich übersprungen hat
+(`frontend/src/SystemStatus.jsx`, Urteil `bewerten()` aus `Datensicherung.jsx`). Gibt es in der Warnschwelle
+keine gelungene Sicherung, zählt das im Symbol als Problem. Venediger zeigt dasselbe.
+
 ## Nur München wiederherstellen
 
 Eine Sicherung enthält beide Systeme. Für München nur die `muc_*`-Tabellen zurückspielen – Venediger bleibt unberührt.
