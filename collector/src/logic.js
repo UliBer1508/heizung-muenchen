@@ -274,12 +274,16 @@ export function holdBelow(temp, want) {
  * @param active    Set der Räume, die beim letzten Lauf heizten (bleiben bei gleicher Prio vorn)
  * @param rates     { raumId: °C/h } gelernt (muc_heat_rate) – nur für die Restzeit im Text
  */
-export function allocateRooms({ items, settings, dayMode = 'grid', level = 0, reached = new Set(), waitSince = {}, active = new Set(), rates = {}, now = new Date() }) {
+export function allocateRooms({
+  items, settings, dayMode = 'grid', level = 0, reached = new Set(), waitSince = {}, active = new Set(), rates = {}, now = new Date(),
+  haltMin = 0, grantedSince = {}, valveSeen = {}, frueh = {}, ueberlauf = {},
+}) {
   const out = items.map((it) => ({ ...it, t: { ...it.t } }));
   const onDelta = Number(settings.seq_on_delta ?? 0.3);
   const offDelta = Math.max(onDelta, Number(settings.seq_off_delta ?? 0.8));
   const cap = Math.max(1, Number(settings.max_grid_circuits) || 6);
   const boostMin = Math.max(0, Number(settings.wait_boost_min ?? 60));
+  const halt = Math.max(0, Number(haltMin) || 0);
   const newReached = new Set();
   const granted = new Set();
   const waiting = new Map(); // id → Text
@@ -287,6 +291,13 @@ export function allocateRooms({ items, settings, dayMode = 'grid', level = 0, re
   let pvUsed = 0;
 
   const hasTemp = (it) => it.temp != null && !Number.isNaN(Number(it.temp));
+  // Haltezeit (Stufe A, 0.13): Ein Raum, der einen Kreis bekommen hat, behält ihn mindestens `halt` Minuten
+  // (er steht in seinem Durchgang vorn – auch vor „wartet lange“). Räume unter der Untergrenze gehen weiter vor.
+  const heldUntil = (id) => {
+    if (!halt || !active.has(id) || !grantedSince[id]) return null;
+    const t = new Date(grantedSince[id]).getTime() + halt * 60000;
+    return t > now.getTime() ? t : null;
+  };
   const isOpen = (it, want) => {
     if (!hasTemp(it)) return false;
     const key = `${it.room.id}@${Number(want)}`;
@@ -299,6 +310,8 @@ export function allocateRooms({ items, settings, dayMode = 'grid', level = 0, re
     return s && boostMin > 0 && now - new Date(s) >= boostMin * 60000 ? new Date(s).getTime() : null;
   };
   const order = (a, b) => {
+    const ha = heldUntil(a.room.id) != null; const hb = heldUntil(b.room.id) != null;
+    if (ha !== hb) return ha ? -1 : 1;
     const ba = boostedAt(a.room.id); const bb = boostedAt(b.room.id);
     if (ba != null && bb != null) return ba - bb;
     if (ba != null) return -1;
@@ -315,24 +328,82 @@ export function allocateRooms({ items, settings, dayMode = 'grid', level = 0, re
     if (kind === 'pv') pvUsed += 1; else gridUsed += 1;
   };
   const valveOpen = (it) => Number(it.state?.valve ?? it.valve ?? 0) > 0;
+  const floorOf = (it) => clamp(Number(it.room.temp_night), Math.max(HARD_MIN, it.room.min_temp ?? HARD_MIN), Math.min(HARD_MAX, it.room.max_temp ?? HARD_MAX));
+  const lo = (it) => Math.max(HARD_MIN, it.room.min_temp ?? HARD_MIN);
+  const hi = (it) => Math.min(HARD_MAX, it.room.max_temp ?? HARD_MAX);
+  const setpointOf = (it) => {
+    const v = it.state?.setpoint;
+    return v == null || Number.isNaN(Number(v)) ? null : Number(v);
+  };
+  // Sollwert „Ventil zu“: Steht Loxone schon sicher unter dem Ist (≤ Ist − 0,3, höchstens 2 °C darunter), bleibt er
+  // stehen – kein neuer Befehl, nur weil das Ist um 0,5 °C weitergewandert ist (Stufe A3, 0.13).
+  const closedTarget = (it, want) => {
+    const sp = setpointOf(it);
+    const temp = Number(it.temp);
+    if (hasTemp(it) && sp != null && sp <= temp - 0.3 && sp >= temp - 2 && sp <= Number(want) && sp >= lo(it)) return sp;
+    return clamp(holdBelow(it.temp, want), lo(it), hi(it));
+  };
 
-  // 0. Manuelle Räume und Räume im Nachlauf
+  // 0. Manuelle Räume
   const free = [];
   for (const it of out) {
     if (it.t.mode === MODES.OVERRIDE) {
       if (isOpen(it, it.t.target)) { granted.add(it.room.id); gridUsed += 1; }
     } else free.push(it);
   }
-  for (const it of free) {
-    if (hasTemp(it) && valveOpen(it) && Number(it.temp) >= Number(it.t.target) - onDelta) { nachlauf.add(it.room.id); gridUsed += 1; }
+
+  // 0b. Ohne Sonne nur die Untergrenze halten, Estrich nicht laden (Nachts nur Min, 0.13 – wie Venediger 17.11.2026):
+  //     Ein Raum mit offenem Ventil wird früh zugemacht, sobald Ist + gemessener Überlauf ≥ Untergrenze + Spitze.
+  //     Nie unter der Untergrenze. Danach FRUEH_SCHUTZ_MIN lang kein neuer Anstoß, solange er über der Untergrenze bleibt.
+  const fruehOn = settings.nacht_frueh_aus !== false && level === 0 && ['night', 'evening', 'wait'].includes(dayMode);
+  const spitze = Math.max(0, Number(settings.nacht_spitze_c ?? 0.1));
+  const newFrueh = {};
+  const fruehIds = new Set();
+  if (fruehOn) {
+    for (const it of free) {
+      const id = it.room.id;
+      const u = Number(ueberlauf[id]);
+      if (it.t.mode !== 'ABSENK' || !hasTemp(it) || !Number.isFinite(u)) continue;
+      const f = floorOf(it);
+      const temp = Number(it.temp);
+      const st = frueh[id];
+      const schutz = st && new Date(st.bis) > now && temp >= f;
+      const thr = Math.max(f, f + spitze - u);
+      if (schutz) {
+        const target = closedTarget(it, Math.min(f, Number(st.target)));
+        newFrueh[id] = { ...st, target };
+        it.t = {
+          mode: 'FRUEH_AUS', target, wanted: f,
+          reason: `früh zu um ${hm(st.at)} – wartet den Überlauf ab (bis ${hm(st.bis)}; unter ${fmt1(f)} °C heizt er sofort wieder)`,
+        };
+        fruehIds.add(id);
+      } else if (valveOpen(it) && temp >= thr) {
+        const target = closedTarget(it, f);
+        newFrueh[id] = { at: now.toISOString(), bis: new Date(now.getTime() + FRUEH_SCHUTZ_MIN * 60000).toISOString(), target, temp };
+        it.t = {
+          mode: 'FRUEH_AUS', target, wanted: f,
+          reason: `Untergrenze ${fmt1(f)} °C gehalten: ${fmt1(temp)} °C + gemessener Überlauf ${fmt1(u)} °C erreicht ${fmt1(temp + u)} °C → Ventil früh zu (ohne Sonne nur Untergrenze, Estrich nicht laden)`,
+        };
+        fruehIds.add(id);
+      }
+    }
   }
 
-  const floorOf = (it) => clamp(Number(it.room.temp_night), Math.max(HARD_MIN, it.room.min_temp ?? HARD_MIN), Math.min(HARD_MAX, it.room.max_temp ?? HARD_MAX));
-  const lo = (it) => Math.max(HARD_MIN, it.room.min_temp ?? HARD_MIN);
-  const hi = (it) => Math.min(HARD_MAX, it.room.max_temp ?? HARD_MAX);
+  // 0c. Nachlauf: fertige Räume mit offenem Ventil belegen einen Kreis. Mit Haltezeit gilt ein Ventil noch `halt` Minuten
+  //     nach dem letzten „offen“ als belegt – sonst entsteht jede Minute, in der Loxone ein Ventil kurz zumacht, ein
+  //     freier Kreis, der in der nächsten Minute wieder fehlt (Hin und Her, gemessen 15.–24.11.2026).
+  const recentlyOpen = (it) => {
+    if (valveOpen(it)) return true;
+    if (!halt || fruehIds.has(it.room.id)) return false;
+    const s = valveSeen[it.room.id];
+    return Boolean(s) && now - new Date(s) < halt * 60000;
+  };
+  for (const it of free) {
+    if (hasTemp(it) && recentlyOpen(it) && Number(it.temp) >= Number(it.t.target) - onDelta) { nachlauf.add(it.room.id); gridUsed += 1; }
+  }
 
   // 1. Unter der Untergrenze – zuerst, aber innerhalb der Netzgrenze
-  const below = free.filter((it) => hasTemp(it) && Number(it.temp) < floorOf(it) - onDelta).sort(order);
+  const below = free.filter((it) => !fruehIds.has(it.room.id) && hasTemp(it) && Number(it.temp) < floorOf(it) - onDelta).sort(order);
   for (const it of below) {
     const f = floorOf(it);
     if (gridUsed < cap) {
@@ -364,7 +435,7 @@ export function allocateRooms({ items, settings, dayMode = 'grid', level = 0, re
   }
 
   // 3. Modell b bzw. Halten: übrige Räume mit ihrem Grundwert (Normal oder Untergrenze)
-  const rest = free.filter((it) => !granted.has(it.room.id) && !belowIds.has(it.room.id) && !it.pvHold).sort(order);
+  const rest = free.filter((it) => !granted.has(it.room.id) && !belowIds.has(it.room.id) && !it.pvHold && !fruehIds.has(it.room.id)).sort(order);
   for (const it of rest) {
     const more = pvWaiting.has(it.room.id) ? ' · wartet auf mehr Überschuss' : '';
     if (!isOpen(it, it.t.target)) { it.t = { ...it.t, reason: `${it.t.reason}${more}` }; continue; } // fertig → hält
@@ -382,12 +453,24 @@ export function allocateRooms({ items, settings, dayMode = 'grid', level = 0, re
     if (!waiting.has(it.room.id) || granted.has(it.room.id)) continue;
     const want = it.t.target;
     newWait[it.room.id] = waitSince[it.room.id] ?? now.toISOString();
+    const held = heating.filter((h) => heldUntil(h.room.id) != null);
     it.t = {
       mode: 'WARTET',
-      target: clamp(holdBelow(it.temp, want), lo(it), hi(it)),
-      reason: `${prioTxt(it.room)}${waiting.get(it.room.id)}${names.length ? ` – es heizen: ${names.join(', ')}` : ''}`,
+      target: closedTarget(it, want),
+      reason: `${prioTxt(it.room)}${waiting.get(it.room.id)}${names.length ? ` – es heizen: ${names.join(', ')}` : ''}`
+        + (held.length ? ` · Haltezeit: ${held.map((h) => `${h.room.name} bis ${hm(heldUntil(h.room.id))}`).join(', ')}` : ''),
       wanted: want,
     };
+  }
+
+  // Zustand für den nächsten Lauf
+  const newGranted = {};
+  for (const id of granted) newGranted[id] = active.has(id) && grantedSince[id] ? grantedSince[id] : now.toISOString();
+  const newValveSeen = {};
+  for (const it of out) {
+    const id = it.room.id;
+    if (valveOpen(it)) newValveSeen[id] = now.toISOString();
+    else if (valveSeen[id] && now - new Date(valveSeen[id]) < 6 * 3600000) newValveSeen[id] = valveSeen[id];
   }
 
   const eta = {};
@@ -408,8 +491,26 @@ export function allocateRooms({ items, settings, dayMode = 'grid', level = 0, re
   return {
     items: out, reached: newReached, waitSince: newWait, active: [...granted],
     gridUsed, pvUsed, eta, waitingOn: names, reason,
+    grantedSince: newGranted, valveSeen: newValveSeen, frueh: newFrueh, fruehAus: [...fruehIds],
   };
 }
+
+/** Schutzzeit nach „früh zu“ (wie Venediger FRUEH_SCHUTZ_MIN): kein neuer Anstoß, solange der Raum über der Untergrenze bleibt. */
+export const FRUEH_SCHUTZ_MIN = 20;
+
+/**
+ * Haltezeit in Minuten: eigene Vorgabe (muc_settings.halte_min_vorgabe) vor dem gelernten Wert (halte_min_gelernt,
+ * migration-016), sonst 15 min. 0 = aus.
+ */
+export function haltezeitOf(settings) {
+  const v = settings?.halte_min_vorgabe;
+  if (v != null && v !== '' && Number.isFinite(Number(v))) return clamp(Number(v), 0, 60);
+  const g = settings?.halte_min_gelernt;
+  if (g != null && Number.isFinite(Number(g))) return clamp(Number(g), 5, 30);
+  return 15;
+}
+
+const hm = (ts) => new Date(ts).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' });
 
 const fmtDur = (min) => (min < 60 ? `${Math.max(1, Math.round(min))} min` : `${Math.floor(min / 60)} h ${String(Math.round(min % 60)).padStart(2, '0')} min`);
 
@@ -528,4 +629,6 @@ export const DEFAULT_SETTINGS = Object.freeze({
   wait_boost_min: 60,   // wer so lange wartet, kommt zuerst dran
   seq_on_delta: 0.3,    // Raum gilt als fertig ab Soll − 0,3 °C
   seq_off_delta: 0.8,   // … und wieder als offen unter Soll − 0,8 °C
+  nacht_frueh_aus: true, // ohne Sonne (Nacht, Abend, Wartetag) Ventil früh zu, Estrich nicht laden (0.13, migration-016)
+  nacht_spitze_c: 0.1,   // … höchstens Untergrenze + so viel (inkl. gemessenem Überlauf)
 });

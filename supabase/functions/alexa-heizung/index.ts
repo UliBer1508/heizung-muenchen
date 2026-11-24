@@ -156,7 +156,7 @@ const HOUSE_MODE: Record<string, string> = {
   PV: 'Heizen mit Sonnenstrom', WARTETAG: 'Wartetag, die Räume warten auf Sonnenstrom',
 };
 const ROOM_MODE: Record<string, string> = {
-  NORMAL: 'Normalbetrieb', ABSENK: 'Untergrenze', WARTET: 'wartet, bis ein Heizkreis frei ist', PV: 'Aufheizen mit Sonnenstrom', VOLL: 'volles Aufheizen', OVERRIDE: 'manuell',
+  NORMAL: 'Normalbetrieb', ABSENK: 'Untergrenze', FRUEH_AUS: 'Untergrenze erreicht, Ventil früh zu', WARTET: 'wartet, bis ein Heizkreis frei ist', PV: 'Aufheizen mit Sonnenstrom', VOLL: 'volles Aufheizen', OVERRIDE: 'manuell',
 };
 const VEN_DAY_MODE: Record<string, string> = {
   wait: 'Wartetag, die Räume warten auf Sonnenstrom', grid: 'Grundheizung aus dem Netz', battery_gate: 'Batterieschutz',

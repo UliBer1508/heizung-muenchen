@@ -1,6 +1,6 @@
 # KI – Raummodell, Vorschläge, Hinweise
 
-**Stand:** 05.11.2026 · **SQL:** `supabase/migration-007-ki.sql` · **App:** Tab **KI** (`frontend/src/Ki.jsx`)
+**Stand:** 24.11.2026 · **SQL:** `supabase/migration-007-ki.sql`, `migration-016-nacht-haltezeit.sql` · **App:** Tab **KI** (`frontend/src/Ki.jsx`)
 **Vorbild:** Venediger, `KONZEPT-RAUMMODELL-2026-11-02.md` und `KONZEPT-KI-VORSCHLAEGE-2026-11-02.md` (§9)
 
 ## 1. Grundsatz
@@ -39,11 +39,14 @@ Grundlage: letzte 7 Tage. Tage, an denen die Wärmepumpe praktisch nicht geheizt
 | **Absenk fehlt** (Einstellungsfehler) | Absenk ≥ Normal | Absenk = Normal − 1 °C (zählt nicht zum Tageslimit, nach „Nein“ 30 Tage Ruhe) |
 | **Estrich mehr laden** | an ≥ 3 Sonnentagen (≥ 2 kWh eingespeist) PV-Wert erreicht | PV-Laden + 0,5 °C (höchstens Normal + 2) |
 | **Nacht reicht nicht** | an ≥ 3 Nächten > 30 min nachgeheizt, obwohl Absenk < Normal | mit Sonnentagen: PV-Laden + 0,5 °C, sonst nur Info |
+| **Untergrenze 0,5 °C tiefer?** (Regel 5, ab 24.11.2026) | an ≥ 3 Nächten > 30 min nachgeheizt und morgens trotzdem auf der Untergrenze | Untergrenze − 0,5 °C (nicht unter Normal − 2); läuft vor den PV-Regeln |
 | **Erreicht Soll nicht** (Info) | an ≥ 3 Tagen > 2 h unter Soll in der Heizzeit | keine Wertänderung – Ursache Wärmepumpe/Ventil/Heizkreis |
 
 Höchstens 3 Verhaltens-Vorschläge am Tag, Rücknahmen zuerst. Kein neuer Vorschlag, solange der gleiche offen ist oder in den
 letzten 7 Tagen abgelehnt wurde. Offene Vorschläge, deren Ausgangswert inzwischen anders eingestellt ist, werden „veraltet“.
 Dazu ein **Rückblick** auf gestern (Außentemperatur, Sonne, Einspeisung, Heizstrom, Räume unter Soll, Nachtheizung, fehlende Messwerte).
+Ab 24.11.2026 mit **Nachtzeile** (Heizstrom der Nacht, davon Netz, Räume nachgeheizt, Spitze über der Untergrenze, „früh zu“) und
+**Erfolgskontrolle „früh zu“** (Nächte seither gegen die 8 Nächte davor, Urteil ab 3 Nächten) – `doc/NACHT-UND-HALTEZEIT-2026-11-24.md`.
 
 **Wirkungsbericht** 3 Tage nach dem Übernehmen: Nachtheizung und Minuten unter Soll vorher/nachher.
 Liegt der Raum danach im Schnitt > 60 min/Tag länger unter Soll → **Rücknahme-Vorschlag** (genehmigt ebenfalls Uli).
@@ -56,6 +59,7 @@ Liegt der Raum danach im Schnitt > 60 min/Tag länger unter Soll → **Rücknahm
 | **Collector meldet sich nicht** | keine Energiewerte seit 15 min |
 | **Keine Raumwerte von Loxone** | Energiewerte kommen, Raumwerte seit 30 min nicht (wie 03.11. 18 Uhr – 05.11. 7 Uhr) |
 | **Automatik ist aus** / **Testmodus ist an** | seit mehr als 6 h |
+| **Ventil bleibt offen, obwohl der Raum warm ist** (ab 24.11.2026) | 2 h lang ≥ 90 % Ventil offen und im Schnitt ≥ 0,5 °C über Soll (EG Wohnzimmer seit 06.11.2026) |
 
 Hinweise erscheinen als rote Leiste über jeder Seite und im Tab KI. „Gesehen, ausblenden“ blendet für 24 h aus.
 
@@ -66,6 +70,8 @@ Hinweise erscheinen als rote Leiste über jeder Seite und im Tab KI. „Gesehen,
 - Kontrolle in Supabase: `select muc_ki_tick();` · `select * from muc_room_model();` · `select * from muc_room_outlook();`
 - Nächte nachrechnen: `select muc_room_nights_rebuild('2026-10-22', current_date - 1);`
 - Abschalten: `select cron.unschedule('muc-ki-tick');`
+- Nacht-Prüfung (stündlich, Minute 7): `select muc_nacht_pruefen();` · `select * from muc_nacht_haus order by night desc;`
+  · Haltezeit lernen (03:25): `select muc_haltezeit_lernen();` · Hin und Her: `select * from muc_hin_und_her_tage(7);`
 
 ## 6. Nächste Schritte
 

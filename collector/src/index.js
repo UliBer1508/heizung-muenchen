@@ -12,10 +12,10 @@ import { readFemsForecast } from './fems-rest.js';
 import { Planer } from './planer.js';
 import {
   DEFAULT_SETTINGS, averageEnergy, phaseAt, desiredPvLevel, holdPvLevel, houseModeOf, roomTarget, needsWrite, surplusW,
-  shouldCaptureDayContext, allocateRooms, trackHeatRuns, dayModeOf, PV_FULL, localMinutes,
+  shouldCaptureDayContext, allocateRooms, trackHeatRuns, dayModeOf, PV_FULL, localMinutes, haltezeitOf,
 } from './logic.js';
 
-const VERSION = '0.12.0';
+const VERSION = '0.13.0';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const stateDir = process.env.STATE_DIR || path.join(here, '..', 'state');
 const cacheFile = path.join(stateDir, 'cache.json');
@@ -194,13 +194,26 @@ async function tick() {
   }
 
   // … dann auf die Kreise verteilen: Untergrenze, Überschuss (a), Netzgrenze (b) …
+  // Ab 0.13: Haltezeit (Stufe A) und „ohne Sonne nur Untergrenze“ (früh zu) – migration-016, doc/NACHT-UND-HALTEZEIT-2026-11-24.md
+  const haltMin = haltezeitOf(settings);
+  const ueberlauf = Object.fromEntries(cache.rooms
+    .filter((r) => r.ueberlauf_c != null && Number(r.ueberlauf_n) >= 3)
+    .map((r) => [r.id, Number(r.ueberlauf_c)]));
   const seq = allocateRooms({
     items, settings, now, dayMode: dm.mode, level: house.level,
     reached: new Set(cache.alloc?.reached || []),
     waitSince: cache.alloc?.waitSince || {},
     active: new Set(cache.alloc?.active || []),
     rates: heatRates,
+    haltMin,
+    grantedSince: cache.alloc?.grantedSince || {},
+    valveSeen: cache.alloc?.valveSeen || {},
+    frueh: cache.alloc?.frueh || {},
+    ueberlauf,
   });
+  for (const id of seq.fruehAus) {
+    if (!cache.alloc?.frueh?.[id]) log(`[FRUEH-ZU] ${cache.rooms.find((r) => r.id === id)?.name || id}: ${seq.items.find((x) => x.room.id === id)?.t.reason}`);
+  }
   const reachedIds = new Set([...seq.reached].map((k) => String(k).split('@')[0]));
 
   // Aufheiz-Messung: wie schnell wird ein Raum warm, während er heizen darf?
@@ -222,7 +235,10 @@ async function tick() {
       kind: 'sequence', mode: house.mode, reason: seq.reason, dry_run: dryRun,
     }]));
   }
-  cache.alloc = { reached: [...seq.reached], waitSince: seq.waitSince, active: seq.active, key: seqKey, reason: seq.reason };
+  cache.alloc = {
+    reached: [...seq.reached], waitSince: seq.waitSince, active: seq.active, key: seqKey, reason: seq.reason,
+    grantedSince: seq.grantedSince, valveSeen: seq.valveSeen, frueh: seq.frueh, haltMin,
+  };
   cache.seq = { runs: tracked.runs };
 
   // … und schreiben.
