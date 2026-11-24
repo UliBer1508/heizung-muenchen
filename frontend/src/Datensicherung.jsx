@@ -193,7 +193,7 @@ export default function Datensicherung() {
                         <div className="muted small">{r.ersatz ? 'Ersatz – sichert nur, wenn nötig' : 'sichert jede Nacht'}</div>
                         <div className="muted mono">{r.host}</div>
                       </div>
-                      {skip ? <span className="pill neutral">⏸ Übersprungen</span>
+                      {skip ? <span className="pill neutral">⏸ Bereit – nicht nötig</span>
                         : r.letzter ? <span className={`pill ${r.letzter.status === 'erfolgreich' ? 'green' : r.letzter.status === 'fehlgeschlagen' ? 'rose' : r.letzter.status === 'warnungen' ? 'sun' : 'neutral'}`}>{STATUS_LABEL[r.letzter.status] || r.letzter.status}</span>
                         : null}
                     </div>
