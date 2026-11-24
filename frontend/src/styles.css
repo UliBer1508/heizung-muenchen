@@ -493,6 +493,9 @@ select, input[type='number'], input[type='time'], input[type='email'], input[typ
 .sich-werte dt { color: var(--muted); }
 .sich-werte dd { margin: 2px 0 0; font-variant-numeric: tabular-nums; }
 .sich-ordner { word-break: break-all; }
+.sich-uhrzeit { border-top: 1px solid var(--line, rgba(0,0,0,.08)); padding-top: 10px; display: grid; gap: 6px; }
+.sich-uhrzeit-zeile { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.sich-uhrzeit input[type=time] { font: inherit; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line, rgba(0,0,0,.15)); background: transparent; color: inherit; }
 .sich-verlauf { margin-top: 12px; }
 .sich-verlauf .sich-name { margin-bottom: 8px; }
 .sich-zeile { display: grid; grid-template-columns: 1fr auto 70px; gap: 12px; padding: 3px 0; font-size: 14px; font-variant-numeric: tabular-nums; }
