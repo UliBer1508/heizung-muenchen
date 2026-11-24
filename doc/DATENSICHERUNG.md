@@ -90,3 +90,34 @@ Ausführliche Anleitung (komplette Wiederherstellung): Hausverwaltung, `docs/Dat
 | Sicherung sofort starten | Aufgabenplanung → „Supabase-Sicherung Heizung“ → Ausführen |
 | Lebenszeichen Ersatz | `select value from system_settings where key = 'backup_standby';` |
 | Kontrolle in Supabase | `select host, max(finished_at), count(*) from backup_runs group by host;` |
+
+## Uhrzeit ändern (24.11.2026)
+
+Uli: „Ich will eine Einstellung in den Karten, um die Zeiten zu ändern. Ich ändere die Zeit und drücke einen Button,
+der die Änderung ausführt.“ – in **Heizung Venediger und Heizung München**, Einstellungen › Datensicherung, Karte je PC.
+
+| Schritt | Wer | Was |
+|---|---|---|
+| 1 | App | Uhrzeit eintragen › **Uhrzeit ändern** → Zeile in `service_commands` (`action = 'backup_time'`, `param = 'HH:MM'`, `service_name = 'backup'`) |
+| 2 | Datenbank (SQL 55) | prüft: nur Admins, PC bekannt, Uhrzeit gültig, kein zweiter Befehl offen |
+| 3 | Dienste-Wächter des PCs (ab **v1.1**, alle 30 s) | stellt die geplante Aufgabe **„Supabase-Sicherung Heizung“** auf *täglich HH:MM Ortszeit* (`Set-ScheduledTask`) |
+| 4 | Wächter → App | Ergebnis unter dem Button: „✓ täglich 03:45 – nächster Lauf 25.11. 03:45“ oder der Fehler |
+
+- Die Karte findet den Wächter über den Rechnernamen (`system_hosts.info.computer` beginnt mit dem Namen aus `backup_runs`).
+- Der neue Auslöser gilt in **Ortszeit** – damit ist auch das Problem „läuft seit der Zeitumstellung 1 h früher“ (Aufgabe hing an UTC) weg.
+- Die Zeile „Uhrzeit“ in der Karte zeigt weiter, was das Sicherungsskript beim letzten Lauf gemeldet hat; sie springt nach der nächsten Sicherung um.
+- **PC Österreich soll nach PC München laufen** (heute 03:45 und 04:15), sonst sichert der schwächere PC zuerst und München überspringt nicht – beide würden sichern.
+- Fehlermeldungen: „Aufgabe … nicht gefunden“ (anderer Name → `config.json` des Wächters: `"backup_task"`),
+  „mit Kennwort gespeichert“ (Uhrzeit einmal von Hand in der Aufgabenplanung ändern), „kein Zugriff“ (Wächter-Dienst ohne Adminrechte).
+- Taste grau mit Hinweis: Wächter älter als v1.1, PC meldet sich nicht, oder nicht als Admin angemeldet.
+
+**Einrichten (einmal):** SQL `55_sicherung_uhrzeit.sql` (Venediger-Repo) ausführen, dann den Wächter auf beiden PCs aktualisieren:
+
+```powershell
+# PC Österreich
+cd C:\Heizung\repo; git pull; nssm restart DiensteWaechter
+# PC München (Wächter liegt als Kopie in C:\Users\ulibe\dienste-waechter)
+Invoke-WebRequest https://raw.githubusercontent.com/UliBer1508/smartfox-insight-ai-selfhosted/main/local-collector/dienste-waechter/index.js -OutFile C:\Users\ulibe\dienste-waechter\index.js
+C:\nssm\nssm.exe restart DiensteWaechter
+```
+Danach zeigt der Systemstatus bei beiden PCs Wächter **1.1**.

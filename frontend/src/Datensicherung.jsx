@@ -7,7 +7,7 @@
 // was die Sicherungs-PCs in backup_runs gemeldet haben.
 //
 // Unterschied zu Venediger:
-//  - nur lesen: Sicherung aktiv / Aufbewahrung / Warnschwelle gelten für beide Apps
+//  - nur lesen: Sicherung aktiv / Aufbewahrung / Warnschwelle gelten für beide Apps (Uhrzeit je PC ist seit 24.11.2026 änderbar: BackupUhrzeit.jsx)
 //    und werden in der Venediger-App eingestellt (system_settings.backup_settings);
 //    die München-App schreibt weiterhin nur in muc_*-Tabellen.
 //  - Stand je Rechner: PC München sichert jede Nacht. PC Österreich ist ERSATZ
@@ -22,6 +22,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from './supabase.js';
 import { Klappkarte } from './Klapp.jsx';
+import BackupUhrzeit from './BackupUhrzeit.jsx';
 
 const DEFAULTS = { enabled: true, retention_days: 30, warn_after_hours: 30 };
 
@@ -206,6 +207,7 @@ export default function Datensicherung() {
                       <div><dt>Datenbank</dt><dd>{r.gelungen ? `${formatBytes(r.gelungen.db_bytes)} · ${r.gelungen.table_count ?? '–'} Tabellen` : '–'}</dd></div>
                       <div><dt>Uhrzeit</dt><dd>{r.letzter?.schedule_time ? `täglich ${r.letzter.schedule_time}` : '–'}</dd></div>
                       <div><dt>Ordner</dt><dd className="sich-ordner">{r.gelungen?.backup_folder ?? '–'}</dd></div>
+                      <BackupUhrzeit backupHost={r.host} aktuell={r.letzter?.schedule_time ?? null} />
                     </dl>
                   </div>
                 );
