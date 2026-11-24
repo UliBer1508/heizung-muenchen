@@ -1,0 +1,44 @@
+{
+  "_hinweis": "Vorlage – die echte addon.json erzeugt 'alexa-ai new mcp' (doc/ALEXA-PLUS.md Schritt 4). Werte von hier übernehmen, HEIZUNG_APP durch die Vercel-Adresse der Heizungs-App ersetzen. Feldnamen ggf. an die erzeugte Datei anpassen.",
+  "manifestVersion": "1.0",
+  "locale": "de-DE",
+  "storeListing": {
+    "distributionCountries": ["DE", "AT"]
+  },
+  "name": { "value": "Meine Heizung", "spokenForm": "meine Heizung" },
+  "shortDescription": "Heizung in München und Venediger abfragen und steuern: Raumtemperaturen, Sonnenstrom, Akku, Anwesenheit.",
+  "fullDescription": "Privates Add-on für die Heizungen in München (Wärmepumpe, Fußbodenheizung, Loxone) und Venediger in Neukirchen am Großvenediger (Thermostate). Fragt Raumtemperaturen, Sonnenstrom, Akku und Eigenverbrauch ab, stellt Räume vorübergehend auf eine Temperatur (höchstens 12 Stunden, mit festen Grenzen), schaltet die Automatik in München und trägt in Venediger Abwesenheiten ein. Jede Antwort nennt das Haus. Geschaltet wird nur über die Heizungs-Apps; Einstellungen bleiben in der App.",
+  "examplePhrases": [
+    "Alexa, stell mit meiner Heizung das Uli Bad für zwei Stunden auf 22 Grad",
+    "Alexa, frag meine Heizung, wie warm es im Bad im Keller ist",
+    "Alexa, frag meine Heizung nach dem Eigenverbrauch in beiden Häusern",
+    "Alexa, sag meiner Heizung, dass wir bis Sonntag nicht in Venediger sind"
+  ],
+  "privacyAndCompliance": {
+    "privacyPolicyUrl": "https://HEIZUNG_APP/alexa/datenschutz.html",
+    "termsOfUseUrl": "https://HEIZUNG_APP/alexa/nutzungsbedingungen.html"
+  },
+  "mediaAssets": {
+    "icons": {
+      "light": [
+        { "size": "72x72", "uri": "https://HEIZUNG_APP/alexa/icon-72.png" },
+        { "size": "64x64", "uri": "https://HEIZUNG_APP/alexa/icon-64.png" },
+        { "size": "88x88", "uri": "https://HEIZUNG_APP/alexa/icon-88.png" },
+        { "size": "126x126", "uri": "https://HEIZUNG_APP/alexa/icon-126.png" },
+        { "size": "180x180", "uri": "https://HEIZUNG_APP/alexa/icon-180.png" },
+        { "size": "241x241", "uri": "https://HEIZUNG_APP/alexa/icon-241.png" }
+      ]
+    },
+    "carouselImages": [
+      { "uri": "https://HEIZUNG_APP/alexa/karussell-600x900.png", "altText": "Meine Heizung – München und Venediger" }
+    ]
+  },
+  "integrations": [
+    {
+      "type": "MCP",
+      "config": {
+        "endpoints": { "default": { "type": "HTTPS", "uri": "https://HEIZUNG_APP/mcp" } }
+      }
+    }
+  ]
+}

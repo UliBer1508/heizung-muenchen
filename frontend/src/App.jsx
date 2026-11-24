@@ -7,6 +7,7 @@ import Log from './Log.jsx';
 import SystemStatusButton from './SystemStatus.jsx';
 import Ki, { useKiOpen } from './Ki.jsx';
 import AutoSteuerung from './auto/AutoSteuerung.jsx';
+import AlexaVerknuepfen from './AlexaVerknuepfen.jsx';
 
 const ICONS = {
   auto: <path d="M4 4v15h16M7 15l4-5 3 3 5-6" />,
@@ -180,5 +181,9 @@ export default function App() {
     );
   }
   if (session === undefined) return null;
-  return session ? <Shell session={session} /> : <Login />;
+  if (!session) return <Login />;
+  // Alexa+-Kontoverknüpfung: …/oauth/authorize leitet mit ?alexa=<id> hierher (doc/ALEXA-PLUS.md)
+  const alexa = new URLSearchParams(window.location.search).get('alexa');
+  if (alexa) return <AlexaVerknuepfen session={session} id={alexa} />;
+  return <Shell session={session} />;
 }

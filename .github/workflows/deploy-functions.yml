@@ -5,7 +5,7 @@
 # Einmalig nötig: GitHub › heizung-muenchen › Settings › Secrets and variables › Actions › New repository secret
 #   Name: SUPABASE_ACCESS_TOKEN   Wert: Token aus https://supabase.com/dashboard/account/tokens
 # Manuell starten: Actions › „Edge Functions deployen“ › Run workflow – im Feld „funktionen“ die Namen eintragen.
-# alexa-heizung braucht --no-verify-jwt (Amazon schickt kein Supabase-Token, doc/ALEXA.md).
+# alexa-heizung und mcp-heizung brauchen --no-verify-jwt (Amazon schickt kein Supabase-Token, doc/ALEXA.md, doc/ALEXA-PLUS.md).
 name: Edge Functions deployen
 
 on:
@@ -59,7 +59,7 @@ jobs:
           for f in ${{ steps.changed.outputs.functions }}; do
             echo "::group::$f"
             extra=""
-            [ "$f" = "alexa-heizung" ] && extra="--no-verify-jwt"
+            case "$f" in alexa-heizung|mcp-heizung) extra="--no-verify-jwt" ;; esac
             supabase functions deploy "$f" --project-ref "$PROJECT_REF" --yes $extra
             echo "::endgroup::"
           done

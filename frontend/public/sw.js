@@ -25,13 +25,18 @@ self.addEventListener('fetch', (e) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return; // Supabase & Co.: nicht anfassen
+  // Alexa+-Anmeldung und MCP (vercel.json leitet an die Edge Function weiter): nie anfassen (24.11.2026)
+  if (/^\/(oauth\/|mcp$|\.well-known\/)/.test(url.pathname)) return;
 
   if (req.mode === 'navigate') {
     e.respondWith(
       fetch(req)
         .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put('/', copy));
+          // nur eine echte App-Seite als Hülle merken, keine Weiterleitungen oder Fehlerseiten
+          if (res.ok && res.type === 'basic') {
+            const copy = res.clone();
+            caches.open(CACHE).then((c) => c.put('/', copy));
+          }
           return res;
         })
         .catch(async () => (await caches.match('/')) || caches.match('/offline.html')),
