@@ -463,6 +463,7 @@ select, input[type='number'], input[type='time'], input[type='email'], input[typ
 .auto-regler-ende { display: flex; justify-content: space-between; font-size: 11px; }
 .auto-liste { margin: 6px 0 0; padding-left: 18px; }
 .auto-anders td { background: var(--sun-bg); }
+.auto-auffaellig td { background: var(--rose-bg); }
 .auto-links td, .auto-links th { text-align: left !important; vertical-align: top; }
 .auto-wirkung td, .auto-wirkung th { text-align: left !important; vertical-align: top; white-space: nowrap; }
 .auto-wirkung td:nth-child(3) { white-space: normal; min-width: 12rem; }
@@ -534,3 +535,4 @@ select, input[type='number'], input[type='time'], input[type='email'], input[typ
 .heat-zr { margin-top: 8px; min-width: 0 !important; width: 100%; font-size: 12px; }
 @media (max-width: 900px) { .wsw-ampeln { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 560px) { .wsw-ampeln { grid-template-columns: 1fr; } .wsw-fazit { font-size: 16px; } }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }

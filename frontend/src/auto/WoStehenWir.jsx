@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../supabase.js';
 import { bereich, heuteOrt, plusTage, verschieben } from './zeit.js';
+import KiGegenRegeln from './KiGegenRegeln.jsx';
 
 const n = (v, d = 0) => (v == null || !Number.isFinite(Number(v)) ? '–'
   : Number(v).toLocaleString('de-DE', { minimumFractionDigits: d, maximumFractionDigits: d }));
@@ -242,12 +243,16 @@ export default function WoStehenWir({ onNavigate }) {
             : `${n(s.h_unter_min)} Raum-Stunden unter der Untergrenze (Ø ${n(minJeNacht, 1)} je Nacht), tagsüber ${n(normalJeTag)} Raum-Stunden je Tag unter Soll.`}
           <Vgl jetzt={minJeNacht} vor={vMin} tageJetzt={d.tage} tageVor={vTage} name={`${vName} Ø je Nacht`} format={kF} nicht={keinRaumVgl} />
         </AmpelKarte>
-        <AmpelKarte ampel={planer} label={d.planer_modus === 'steuern' ? 'Planer steuert' : d.planer_modus === 'schatten' ? 'Planer rechnet mit' : 'Regeln'} frage="Wer steuert gerade?">
+        {/* 24.11.2026: Modus-Namen wie Venediger (16.11.2026) */}
+        <AmpelKarte ampel={planer} label={d.planer_modus === 'steuern' ? 'KI steuert' : d.planer_modus === 'aus' ? 'Planer (Regeln)' : 'KI rechnet mit'} frage="Wer steuert gerade?">
           {d.planer_modus === 'steuern'
-            ? 'Der Planer steuert – innerhalb der festen Regeln.'
-            : 'Die festen Regeln (Collector) steuern. Der Planer rechnet im Schatten mit – was er anders machen würde, steht unter „Plan“.'}
+            ? 'Die KI steuert – innerhalb der festen Regeln. Ob sie besser ist, zeigt die Gegenrechnung darunter.'
+            : 'Die festen Regeln (Collector) steuern. Die Gegenrechnung darunter zeigt jeden Morgen, ob die KI besser wäre.'}
         </AmpelKarte>
       </div>
+
+      {/* 24.11.2026 (wie Venediger 16.11.): Gegenrechnung jeden Morgen hier – darf die KI steuern? */}
+      <KiGegenRegeln />
 
       <div className="card">
         <div className="wsw-row wsw-zw">

@@ -9,13 +9,15 @@ const KINDS = {
   alexa: 'Alexa',
   alexa_plus: 'Alexa+',
   ki: 'KI',
+  planer: 'Planer-Prüfung',
 };
 
 export default function Log({ data }) {
   const [filter, setFilter] = useState('all');
   const roomName = Object.fromEntries(data.rooms.map((r) => [r.id, r.name]));
-  // Filter „Alexa“ zeigt Skill (alexa) und Alexa+-Add-on (alexa_plus)
-  const rows = data.decisions.filter((d) => filter === 'all' || d.kind === filter || (filter === 'alexa' && d.kind === 'alexa_plus'));
+  // Filter „Alexa“ zeigt Skill (alexa) und Alexa+-Add-on (alexa_plus); „KI“ auch die Planer-Prüfung (planer, 24.11.2026)
+  const rows = data.decisions.filter((d) => filter === 'all' || d.kind === filter || (filter === 'alexa' && d.kind === 'alexa_plus')
+    || (filter === 'ki' && d.kind === 'planer'));
   return (
     <div className="stack">
       <div className="seg">

@@ -1,7 +1,7 @@
 // KOPIE aus Heizung Venediger – nicht für München umgeschrieben (Grundregel doc/KONZEPT.md, Uli 12.11.2026).
-// Herkunft: UliBer1508/smartfox-insight-ai-selfhosted · supabase/functions/heizplaner/modell.ts · Commit b9444bb (13.11.2026)
+// Herkunft: UliBer1508/smartfox-insight-ai-selfhosted · supabase/functions/heizplaner/modell.ts · Commit af244ae (Stand 24.11.2026)
 // Inhalt unverändert. Was München anders braucht (Daten, Räume, Zeiten), steht in rechnen.ts (MÜNCHEN:) und index.ts.
-// Wird das Modell in Venediger verbessert, diese Datei bewusst neu kopieren und den Commit oben anpassen.
+// Abgleich: doc/ABGLEICH-VENEDIGER.md – wird das Modell in Venediger verbessert, diese Datei neu kopieren und den Commit oben anpassen.
 //
 // Heizplaner – Rechenkern (06.11.2026, neu 13.11.2026: doc/FIX-PLANER-MODELL-2026-11-13.md)
 //
@@ -24,6 +24,8 @@
 // Bewusst ohne Kopplung an die Nachbarräume: Mit dem gemessenen Mittel der anderen Räume als Eingang „lernte“ das Modell,
 // dass die Räume kaum nach draußen verlieren und einfach den anderen folgen (k an der Untergrenze) – im Plan wäre das Haus
 // dann nie ausgekühlt.
+
+import { netzGrenzTemp, type Netzgrenze } from '../_shared/heizregeln.ts';
 
 export const DT_H = 0.25;            // 15 Minuten
 export const SLOTS = 96;             // 24 h
@@ -228,12 +230,30 @@ export interface PlanRaum {
   gewicht: number;                                // Faktor aus Priorität
   fest: (0 | 1 | null)[];                         // je Slot festgelegt (manuell, nicht steuerbar) oder frei
 }
-export interface PlanSlot { pv: number; base: number; tout: number; pvkw: number; capW: number }
-export interface Batterie { eKwh: number; capKwh: number; minKwh: number; maxLadenW: number; maxEntladenW: number; eta: number }
+export interface PlanSlot {
+  pv: number; base: number; tout: number; pvkw: number; capW: number;
+  // 16.11.2026 (Regeln als Rahmen, _shared/heizregeln.ts): bis wohin Netz/Batterie heizen darf und ob Sonnentag ist
+  netz?: Netzgrenze; sonnentag?: boolean;
+}
+export interface Batterie {
+  eKwh: number; capKwh: number; minKwh: number; maxLadenW: number; maxEntladenW: number; eta: number;
+  heizMinKwh?: number;   // 16.11.2026: Sonnentag – unter diesem Stand lädt die Sonne zuerst die Batterie (heating_min_battery_soc)
+}
 export interface Gewichte {
   ziel: number; unter: number; sicher: number; ueber: number; einspeiseFaktor: number; batterieRest: number;
-  waermeRest: number;   // Wert der im Haus gespeicherten Wärme am Planende je kWh (wie Batterie-Restladung)
+  waermeRest: number;   // Wert je kWh, die am Planende WENIGER im Haus gespeichert ist (Estrich leeren wird bestraft)
+  waermeMehr: number;   // Wert je kWh, die am Planende MEHR gespeichert ist (13.11.2026 abends: nur so viel wie PV-Strom,
+                        // den man sonst einspeisen würde – sonst ist Heizen aus dem Netz in den Estrich fast gratis)
+  regeln?: boolean;     // 16.11.2026: feste Regeln als Rahmen (Netz/Batterie nur bis Netzgrenze). false = alter Planer (Vergleich)
+  spielraum?: number;   // 16.11.2026: ohne PV höchstens Grenztemperatur + Spielraum (ziel_abschalt_ueber_c, 0,3 °C)
 }
+
+/** Wert der Wärme am Planende (asymmetrisch, doc/FIX-PLANER-PRUEFUNG-2026-11-13.md).
+ *  Weniger Wärme als zu Beginn kostet waermeRest – aber nur, wenn der Raum am Ende unter seinem Ziel liegt. Endet er
+ *  am oder über dem Ziel, war die verlorene Wärme Überschuss (z. B. Waschraum 20 °C bei Ziel 19 °C) und zählt nur
+ *  wie PV-Strom (waermeMehr). Mehr Wärme als zu Beginn zählt immer nur waermeMehr. */
+export const waermeWert = (g: Gewichte, ende: number, ueberZiel = false) =>
+  (ende < 0 && !ueberZiel ? g.waermeRest : (g.waermeMehr ?? g.waermeRest)) * ende;
 
 export interface Ergebnis {
   heizen: number[][];             // [raum][slot] 0/1
@@ -244,7 +264,7 @@ export interface Ergebnis {
   kosten: number; schritte: number;
 }
 
-interface Sim { pen: number[]; T: number[]; S: number[]; ende: number }
+interface Sim { pen: number[]; T: number[]; S: number[]; ende: number; wert: number }
 
 function simRaum(r: PlanRaum, h: number[], slots: PlanSlot[], g: Gewichte, ab = 0, start?: { T: number; S: number }): Sim {
   const N = slots.length;
@@ -258,7 +278,7 @@ function simRaum(r: PlanRaum, h: number[], slots: PlanSlot[], g: Gewichte, ab = 
       g.sicher * Math.max(0, r.sicher[i] - T) + g.ueber * Math.max(0, T - r.max[i]));
   }
   const ende = waermeKwh(r.param, r.p, T - r.T0, S - r.S0);
-  return { pen, T: Tv, S: Sv, ende };
+  return { pen, T: Tv, S: Sv, ende, wert: waermeWert(g, ende, T >= r.ziel[N - 1]) };
 }
 
 function simEnergie(heizW: number[], slots: PlanSlot[], b: Batterie, g: Gewichte, ab = 0, e0?: number):
@@ -298,7 +318,7 @@ export function plane(raeume: PlanRaum[], slots: PlanSlot[], bat: Batterie, g: G
   const penSum = (p: number[], ab: number) => { let s = 0; for (let i = ab; i < p.length; i++) s += p[i]; return s; };
   const batEnde = (e: number[]) => e[N - 1] ?? bat.eKwh;
   const gesamt = () => en.kosten - g.batterieRest * (batEnde(en.e) - bat.eKwh)
-    + rs.reduce((s, x) => s + penSum(x.pen, 0) - g.waermeRest * x.ende, 0);
+    + rs.reduce((s, x) => s + penSum(x.pen, 0) - x.wert, 0);
 
   const versuche = (r: number, blk: number, an: 0 | 1) => {
     const i0 = blk * BLOCK, i1 = Math.min(N, i0 + BLOCK);
@@ -312,11 +332,32 @@ export function plane(raeume: PlanRaum[], slots: PlanSlot[], bat: Batterie, g: G
     const start = i0 > 0 ? { T: rs[r].T[i0 - 1], S: rs[r].S[i0 - 1] } : undefined;
     const nr = simRaum(raeume[r], hn, slots, g, i0, start);
     for (let i = 0; i < i0; i++) { nr.T[i] = rs[r].T[i]; nr.S[i] = rs[r].S[i]; nr.pen[i] = rs[r].pen[i]; }
+    // 16.11.2026: Feste Regeln sind der Rahmen (Uli: „die KI ergänzt die Regeln, schaltet sie nicht aus“).
+    // Je Viertelstunde des Blocks: Ist sie nicht zur Hälfte mit PV-Überschuss gedeckt, darf der Raum mit diesem Heizen
+    // höchstens auf Grenztemperatur + Spielraum kommen – Min (Nacht, Abend, Sonnentag, abwesend) bzw. Normal (Tag ohne
+    // genug Sonne). Kein Vorlauf: Der Planer heizt laut Raummodell rechtzeitig vor Min (Entscheidung 14.11., Variante A).
+    // Am Sonnentag lädt die Sonne zuerst die Batterie bis heating_min_battery_soc.
+    if (an === 1 && g.regeln) {
+      const rr = raeume[r];
+      // Ab dem Block bis Planende: Ein früheres Heizen hebt auch die Temperatur in schon geplanten späteren Blöcken –
+      // die müssen danach ebenfalls in der Regel bleiben.
+      for (let i = i0; i < N; i++) {
+        if (hn[i] !== 1 || rr.fest[i] != null) continue;
+        let frei = slots[i].pv - slots[i].base - (hw[i] - rr.p);
+        const eVor = i > 0 ? en.e[i - 1] : bat.eKwh;
+        if (slots[i].sonnentag && bat.heizMinKwh != null && eVor < bat.heizMinKwh) {
+          frei -= Math.min(bat.maxLadenW, Math.max(0, slots[i].pv - slots[i].base));
+        }
+        if (frei >= 0.5 * rr.p) continue;
+        const grenzT = netzGrenzTemp(slots[i].netz ?? 'normal', rr.unter[i], rr.ziel[i]) + (g.spielraum ?? 0.3);
+        if (nr.T[i] > grenzT) return null;
+      }
+    }
     const e0 = i0 > 0 ? en.e[i0 - 1] : undefined;
     const ne = simEnergie(hw, slots, bat, g, i0, e0);
     const vorherEnergie = (() => { let s = 0; for (let i = i0; i < N; i++) s += DT_H / 1000 * (en.netz[i] - g.einspeiseFaktor * en.einsp[i]); return s; })();
     const d = (ne.kosten - vorherEnergie) - g.batterieRest * (batEnde(ne.e) - batEnde(en.e))
-      + (penSum(nr.pen, i0) - penSum(rs[r].pen, i0)) - g.waermeRest * (nr.ende - rs[r].ende);
+      + (penSum(nr.pen, i0) - penSum(rs[r].pen, i0)) - (nr.wert - rs[r].wert);
     return { d, hn, hw, nr, ne, i0 };
   };
   const uebernehme = (r: number, x: NonNullable<ReturnType<typeof versuche>>) => {

@@ -5,7 +5,8 @@
 // heizplaner-muenchen auf:
 //   * alle 15 Minuten  aktion=planen
 //   * täglich ab 03:00 aktion=lernen je Raum, dann pv_lernen, dann vergleich (gestern)
-// Der Planer steuert nichts (Schattenbetrieb). Fällt er aus, läuft die Heizungssteuerung unverändert weiter.
+// Der Planer selbst schaltet nichts. Bei „KI steuert“ setzt der Collector den Plan um (src/plan.js, 0.14); fällt der
+// Planer aus, ist der Plan nach 30 min zu alt und die Regel-Steuerung übernimmt.
 
 export const PLAN_EVERY_MS = 15 * 60 * 1000;
 export const LEARN_AT_MIN = 3 * 60;          // 03:00 Ortszeit
