@@ -153,7 +153,7 @@ Schnitt ≥ 0,5 °C über dem Sollwert → rote Leiste mit den Räumen. Erledigt
 - App gebaut (`npm run build`).
 
 ## 8. Einspielen
-1. Supabase › SQL-Editor: `supabase/migration-016-nacht-haltezeit.sql` ausführen. Am Ende stehen die Überlauf-Werte je Raum.
+1. Supabase: `supabase/migration-016-nacht-haltezeit.sql` – **am 24.11.2026 ausgeführt** (Claude per Connector). Gelernte Haltezeit 16 min (187 Messungen).
 2. Mini-PC München:
    ```powershell
    cd C:\Users\ulibe\heizung-muenchen

@@ -32,11 +32,11 @@ alter table public.muc_settings add column if not exists halte_min_stand timesta
 
 comment on column public.muc_settings.nacht_frueh_aus is 'Ohne Sonne (Nacht, Abend, Wartetag) Ventil früh zu: Ist + gemessener Überlauf ≥ Untergrenze + nacht_spitze_c (Collector 0.13)';
 comment on column public.muc_settings.nacht_spitze_c is 'Ohne Sonne höchstens Untergrenze + so viel °C (inkl. Überlauf nach Ventil zu)';
-comment on column public.muc_settings.nacht_frueh_aus_seit is 'Seit wann „früh zu“ läuft – Bezug der Erfolgskontrolle in der KI';
+comment on column public.muc_settings.nacht_frueh_aus_seit is 'Seit wann „früh zu“ läuft – Bezug der Erfolgskontrolle in der KI (setzt muc_nacht_pruefen, sobald Collector 0.13 läuft)';
 comment on column public.muc_settings.halte_min_vorgabe is 'Haltezeit eigene Vorgabe in min (null = gelernter Wert, 0 = aus)';
 comment on column public.muc_settings.halte_min_gelernt is 'Haltezeit gelernt (muc_haltezeit_lernen): Median „Kreis auf bei stehender WP → WP läuft“, 5–30 min';
 
-update public.muc_settings set nacht_frueh_aus_seit = now() where id = 1 and nacht_frueh_aus_seit is null;
+-- nacht_frueh_aus_seit setzt muc_nacht_pruefen(), sobald Collector 0.13 läuft (sonst zählten Nächte mit 0.12 schon als „früh zu“).
 
 alter table public.muc_rooms add column if not exists ueberlauf_c numeric(3,2);
 alter table public.muc_rooms add column if not exists ueberlauf_n integer;
@@ -234,6 +234,10 @@ returns text
 language plpgsql security definer set search_path = public as $$
 declare d date; n int := 0; u int;
 begin
+  update muc_settings s set nacht_frueh_aus_seit = now()
+   where s.id = 1 and s.nacht_frueh_aus_seit is null and s.nacht_frueh_aus
+     and exists (select 1 from muc_collector_status c where c.id = 1 and c.version is not null
+                    and string_to_array(c.version, '.')::int[] >= array[0, 13, 0]);
   for d in select generate_series(muc_ki_today() - 2, muc_ki_today() - 1, interval '1 day')::date loop
     perform muc_room_night_calc(d);
     n := n + muc_nacht_kennzahlen(d);
