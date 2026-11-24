@@ -42,7 +42,7 @@ function sicherungKurz(runs, standby, settings, jetzt = Date.now()) {
   } else teile.push('keine gelungene Sicherung in 14 Tagen');
   const skip = ersatz && ersatz.beat?.result === 'uebersprungen'
     && (!ersatz.letzter || new Date(ersatz.beat.checked_at) > new Date(ersatz.letzter.finished_at));
-  if (skip) teile.push(`${rechnerName(ersatz.host)} übersprungen`);
+  if (skip) teile.push(`${rechnerName(ersatz.host)} bereit (nicht nötig)`);
   if (gelb.length) teile.push(gelb[0]);
   return {
     tone: rot ? 'bad' : gelb.length ? 'warn' : 'ok',

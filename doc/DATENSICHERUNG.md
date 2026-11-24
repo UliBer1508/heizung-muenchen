@@ -45,7 +45,7 @@ Es gibt keinen neuen Status in `backup_runs`. Die Venediger-App zeigt seit 13.11
 
 Einstellungen → **Datensicherung** (`frontend/src/Datensicherung.jsx`):
 
-- Stand **je Rechner**: letzter Lauf, letzte gelungene Sicherung, Größe, Tabellen; beim Ersatz „⏸ Übersprungen“ mit Uhrzeit.
+- Stand **je Rechner**: letzter Lauf, letzte gelungene Sicherung, Größe, Tabellen; beim Ersatz „⏸ Bereit – nicht nötig“ mit Uhrzeit (bis 23.11.2026 „Übersprungen“ – klang nach Fehler).
 - Darstellung seit 13.11.2026 **gleich wie Venediger**: je PC eine Karte (Rolle, Status, letzter Lauf, letzte gelungene,
   Datenbank, Uhrzeit, Ordner), darunter Verlauf 14 Tage mit Rechner je Lauf.
 - **Rot**, wenn innerhalb der Warnschwelle (Standard 30 h) *keine* gelungene Sicherung vorliegt.
@@ -56,7 +56,7 @@ Einstellungen → **Datensicherung** (`frontend/src/Datensicherung.jsx`):
   **Venediger-App** eingestellt (Einstellungen → Datensicherung). Die München-App schreibt weiterhin nur in `muc_*`.
 
 **Systemstatus (23.11.2026):** Im Systemstatus-Fenster steht unter „Alles läuft“ die Karte **„Sicherungen“**.
-Sie zeigt, wann zuletzt gesichert wurde, von welchem PC, mit welcher Größe und ob PC Österreich übersprungen hat
+Sie zeigt, wann zuletzt gesichert wurde, von welchem PC, mit welcher Größe und ob PC Österreich bereit war, ohne sichern zu müssen („PC Österreich bereit (nicht nötig)“, seit 24.11.2026)
 (`frontend/src/SystemStatus.jsx`, Urteil `bewerten()` aus `Datensicherung.jsx`). Gibt es in der Warnschwelle
 keine gelungene Sicherung, zählt das im Symbol als Problem. Venediger zeigt dasselbe.
 
