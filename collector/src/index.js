@@ -10,12 +10,13 @@ import { Db } from './db.js';
 import { readOutdoorTemp, readEvccChargePower } from './extras.js';
 import { readFemsForecast } from './fems-rest.js';
 import { Planer } from './planer.js';
+import { planStandAus, planAnwenden, grenzeAus, pvFreiAus } from './plan.js';
 import {
   DEFAULT_SETTINGS, averageEnergy, phaseAt, desiredPvLevel, holdPvLevel, houseModeOf, roomTarget, needsWrite, surplusW,
   shouldCaptureDayContext, allocateRooms, trackHeatRuns, dayModeOf, PV_FULL, localMinutes, haltezeitOf,
 } from './logic.js';
 
-const VERSION = '0.13.0';
+const VERSION = '0.14.0';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const stateDir = process.env.STATE_DIR || path.join(here, '..', 'state');
 const cacheFile = path.join(stateDir, 'cache.json');
@@ -73,6 +74,7 @@ let contextWarned = false;
 let lastCarW = null;   // Auto-Ladeleistung vom letzten Lauf (für den geschätzten Heizstrom)
 let heatRates = {};    // gelernte Aufheizrate je Raum (°C pro Stunde) aus muc_heat_rate
 let ratesWarned = false;
+let planGrund = null;  // letzter Stand „KI steuert“ (nur bei Wechsel ins Log)
 
 function loadCache() {
   try {
@@ -214,6 +216,35 @@ async function tick() {
   for (const id of seq.fruehAus) {
     if (!cache.alloc?.frueh?.[id]) log(`[FRUEH-ZU] ${cache.rooms.find((r) => r.id === id)?.name || id}: ${seq.items.find((x) => x.room.id === id)?.t.reason}`);
   }
+
+  // … „KI steuert“ (0.14, wie Venediger pv-automation): im Modus steuern ersetzt der Plan das Ergebnis der Regel-Steuerung je
+  // Raum – innerhalb der festen Regeln, Netzgrenze gilt. Ohne frischen Plan bleibt die Regel-Steuerung (Rückfall).
+  let planInfo = { steuert: false, grund: `Modus ${settings.planer_modus ?? 'schatten'}`, raeume: 0, heizen: 0 };
+  if (settings.planer_modus === 'steuern' && db.enabled) {
+    let row = null;
+    try {
+      [row] = await db.select('muc_heizplan', 'select=erstellt_at,plan&order=erstellt_at.desc&limit=1');
+    } catch (e) {
+      errors.push(`Plan nicht lesbar: ${e.message}`);
+    }
+    const stand = planStandAus(row, { modus: settings.planer_modus, now });
+    const pa = planAnwenden({
+      items: seq.items, stand, settings, grenze: grenzeAus(dm.mode),
+      pvFreiW: Math.max(0, pvFreiAus(energy, settings) - (lastCarW || 0)), now,
+    });
+    seq.items = pa.items;
+    if (stand.map) {
+      const planIds = new Set(pa.planRaeume);
+      seq.active = [...seq.active.filter((id) => !planIds.has(id)), ...pa.heizen];
+    }
+    planInfo = { steuert: Boolean(stand.map), grund: stand.grund, raeume: pa.planRaeume.length, heizen: pa.heizen.length };
+  }
+  const planText = planInfo.steuert ? `KI steuert (${planInfo.grund}): ${planInfo.raeume} Räume nach Plan, ${planInfo.heizen} heizen` : planInfo.grund;
+  if (settings.planer_modus === 'steuern' && planGrund !== planText.replace(/\d+ heizen/, '')) {
+    log(`[KI-STEUERT] ${planText}`);
+    planGrund = planText.replace(/\d+ heizen/, '');
+  }
+
   const reachedIds = new Set([...seq.reached].map((k) => String(k).split('@')[0]));
 
   // Aufheiz-Messung: wie schnell wird ein Raum warm, während er heizen darf?
@@ -374,7 +405,7 @@ async function tick() {
     mode_since: new Date(house.since).toISOString(),
     mode_reason: house.reason,
     pending_mode: house.pending,
-    sequence_info: seq.reason,
+    sequence_info: planInfo.steuert ? `${planText} · Regel-Steuerung (Rückfall): ${seq.reason}` : seq.reason,
     day_mode: dm.mode,
     dry_run: dryRun,
     fenecon_ok: feneconOk,

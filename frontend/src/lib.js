@@ -18,6 +18,9 @@ export const MODE_META = {
   PV: { label: 'PV', tone: 'sun', hint: 'Überschuss wird nach Priorität auf die Räume verteilt – Estrich laden' },
   VOLL: { label: 'Voll', tone: 'green', hint: 'Batterie voll – maximal laden' },
   OVERRIDE: { label: 'Manuell', tone: 'rose', hint: 'Manueller Sollwert aktiv' },
+  // „KI steuert“ (Collector 0.14): Sollwert nach dem Plan der KI, innerhalb der festen Regeln
+  PLAN: { label: 'KI heizt', tone: 'sun', hint: 'KI steuert: der Plan heizt diesen Raum jetzt – innerhalb der Regeln (ohne Sonne nur bis zur Netzgrenze, Untergrenze immer)' },
+  PLAN_ZU: { label: 'KI wartet', tone: 'night', hint: 'KI steuert: Ventil zu – der Plan heizt den Raum jetzt nicht (oder die Regel erlaubt es ohne Sonne nicht)' },
   // ältere Einträge im Protokoll (bis Version 0.4)
   PV_LADEN: { label: 'PV-Laden', tone: 'sun', hint: 'Überschuss → Estrich wird geladen' },
   ABEND_SCHUTZ: { label: 'Abend-Schutz', tone: 'cool', hint: 'Batterie schonen für den Abend' },

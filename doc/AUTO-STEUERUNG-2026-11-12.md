@@ -68,7 +68,7 @@ Inhalte, Texte und Farben sind gleich.
 
 ## Noch nicht drin
 
-- **Steuern** (gesperrt wie in Venediger).
+- ~~Steuern~~ – seit 24.11.2026 da („KI steuert“, doc/PLANER-WIE-VENEDIGER-2026-11-24.md).
 - **Warmwasser und Auto als eigene Last im Plan** und das Zeitprogramm der Wärmepumpe: Der Plan rechnet bisher mit
   der Grundlast. Kommt, sobald die Wärmepumpe im LAN ist (Phase 3).
 

@@ -1,8 +1,10 @@
 // Tab „Auto-Steuerung“ (12.11.2026) – erster Tab, vor der Übersicht, wie in Heizung Venediger.
 // Uli: „Ich will eine Auto-Steuerung auch in München – die Analyse, wie sie ist, und zusätzlich die Auto-Steuerung.“
 //      „In Venediger haben wir Steuerung und Planung in diesem Teil.“
-// ÜBERNOMMEN aus Heizung Venediger (src/components/ki/AutoSteuerung.tsx, Commit bf8d3a7):
-//   1 Verlauf und Wirkung · 2 Steuerung (Modus + Eingriffe) · 3 Plan
+// ÜBERNOMMEN aus Heizung Venediger (src/components/ki/AutoSteuerung.tsx, Commit bf8d3a7; Stand af244ae vom 24.11.2026:
+//   Modus-Namen Planer (Regeln) / KI rechnet mit / KI steuert, „KI steuert“ freigeschaltet, Regler „Sicherheit unter
+//   Untergrenze“ entfällt (Untergrenze hart), Räume aus der Plan-Prüfung unter „Einzelne Räume“, neuer Plan beim Umschalten):
+//   1 Wo stehen wir · 2 Verlauf und Wirkung · 3 Steuerung (Modus + Eingriffe) · 4 Plan
 // Die Eingriffe sind vorhandene Einstellungen an einem Platz – keine neuen Werte. Unterschied zu Venediger:
 // München begrenzt ohne Sonne die Zahl der Kreise (Netzgrenze), Venediger die Leistung in Watt.
 import { useMemo, useState } from 'react';
@@ -30,14 +32,14 @@ function Abschnitt({ id, nr, titel, frage, children }) {
   );
 }
 
-const MODI = [['aus', 'Aus'], ['schatten', 'Schatten'], ['steuern', 'Steuern']];
+// Venediger 16.11.2026 (Uli): Namen nach seinem Bild – Planer = feste Regeln, KI liegt obendrauf. Werte in der DB bleiben.
+const MODI = [['aus', 'Planer (Regeln)'], ['schatten', 'KI rechnet mit'], ['steuern', 'KI steuert']];
 const REGLER = [
   { k: 'planer_gewicht_ziel', def: 0.6, min: 0.1, max: 3, step: 0.1, l: 'Sparsamer ↔ wärmer', links: 'sparsamer', rechts: 'wärmer',
-    text: (v) => `1 °C·h unter Ziel ist dir ${num(v)} kWh Netzstrom wert. Höher = wärmer, mehr Netz.` },
+    text: (v) => `1 °C·h unter Ziel ist dir ${num(v)} kWh Netzstrom wert. Höher = wärmer, mehr Netz. Die Untergrenze hält der Planer immer.` },
   { k: 'max_grid_circuits', def: 6, min: 1, max: 15, step: 1, l: 'Netzgrenze ohne Sonne', links: '1 Kreis', rechts: '15 Kreise',
     text: (v) => `${num(v, 0)} ${Number(v) === 1 ? 'Kreis darf' : 'Kreise dürfen'} gleichzeitig aus Batterie/Netz heizen. Gilt auch sofort für die heutige Steuerung.` },
-  { k: 'planer_sicherheit_abstand', def: 1.5, min: 0, max: 3, step: 0.5, l: 'Sicherheit unter Untergrenze', links: '0 °C', rechts: '3 °C',
-    text: (v) => `Kein Raum fällt mehr als ${num(v)} °C unter seine Untergrenze.` },
+  // Venediger 14.11.2026: Der Planer hält die Untergrenze hart – der Regler „Sicherheit unter Untergrenze“ entfällt.
 ];
 
 function Steuerung({ data, reload, kiOffen, onNavigate }) {
@@ -45,9 +47,11 @@ function Steuerung({ data, reload, kiOffen, onNavigate }) {
   const [entwurf, setEntwurf] = useState({});
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
+  const [info, setInfo] = useState(null);
   const wert = (k, def) => (entwurf[k] ?? Number(s[k] ?? def));
   const geaendert = Object.keys(entwurf).filter((k) => entwurf[k] !== Number(s[k]));
   const modus = s.planer_modus ?? null;   // null = migration-014 fehlt
+  const pruef = s.planer_pruefung?.raeume ?? {};   // Plan-Prüfung (migration-018)
 
   const speichern = async (patch) => {
     setBusy(true); setMsg(null);
@@ -61,10 +65,22 @@ function Steuerung({ data, reload, kiOffen, onNavigate }) {
   const jetzt = Date.now();
   const besonders = useMemo(() => (data.rooms || []).map((r) => {
     const manuell = r.override_temp != null && r.override_until && new Date(r.override_until).getTime() > jetzt;
+    const p = pruef[r.id];
+    // 24.11.2026 (Uli: Text war schwer lesbar): kurz – was die KI falsch gemacht hätte und bis wann die Regeln steuern
     const grund = !r.enabled ? 'Automatik aus' : manuell
-      ? `manuell ${num(r.override_temp)} °C bis ${new Date(r.override_until).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' })}` : null;
+      ? `manuell ${num(r.override_temp)} °C bis ${new Date(r.override_until).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' })}`
+      : p && !p.ok ? `Plan passt nicht – ${p.gruende?.[0] ?? 'Prüfung'} → Regel-Steuerung` : null;
     return { id: r.id, name: r.name, grund };
-  }).filter((x) => x.grund), [data.rooms, jetzt]);
+  }).filter((x) => x.grund), [data.rooms, jetzt, pruef]);
+
+  // Venediger 13.11.2026: Beim Umschalten rechnet der Planer sofort neu, damit „KI steuert“ gleich mit einem frischen Plan beginnt.
+  const modusSetzen = async (m) => {
+    if (m === modus) return;
+    if (!await speichern({ planer_modus: m }) || m === 'aus') return;
+    const { error } = await supabase.functions.invoke('heizplaner-muenchen', { body: { aktion: 'planen' } });
+    if (error) { setMsg('Neuer Plan konnte nicht sofort gerechnet werden – kommt mit dem nächsten 15-Minuten-Lauf.'); return; }
+    setInfo(m === 'steuern' ? 'Neuer Plan gerechnet – die KI steuert ab dem nächsten Collector-Lauf (≤ 1 min), innerhalb der Regeln.' : 'Neuer Plan gerechnet – die KI rechnet nur mit.');
+  };
 
   return (
     <div className="stack">
@@ -75,17 +91,16 @@ function Steuerung({ data, reload, kiOffen, onNavigate }) {
         </div>
         <div className="seg seg-3" role="group" aria-label="Modus der Auto-Steuerung">
           {MODI.map(([m, l]) => (
-            <button key={m} type="button" className={modus === m ? 'seg-btn active' : 'seg-btn'} disabled={m === 'steuern' || busy || modus == null}
-              title={m === 'steuern' ? 'Noch nicht gebaut – kommt nach der Freigabe, wie in Venediger' : undefined}
-              onClick={() => m !== modus && speichern({ planer_modus: m })}>{l}</button>
+            <button key={m} type="button" className={modus === m ? 'seg-btn active' : 'seg-btn'} disabled={busy || modus == null}
+              onClick={() => modusSetzen(m)}>{l}</button>
           ))}
         </div>
       </div>
       <div className={modus === 'aus' ? 'notice-warn' : 'notice'}>
         {modus == null && 'Die Auto-Steuerung ist noch nicht eingerichtet: supabase/migration-014-auto-steuerung.sql ausführen.'}
-        {modus === 'aus' && 'Planer aus – die heutige Steuerung (Collector: Tagesmodi, Priorität, Netzgrenze) entscheidet allein.'}
-        {modus === 'schatten' && 'Schattenbetrieb – der Planer rechnet alle 15 min einen Plan und schreibt auf, was er anders gemacht hätte; an den Raumreglern ändert er nichts. Die heutige Steuerung (Collector) setzt weiter die Sollwerte. So sehen wir im Vergleich, ob der Plan besser wäre, bevor er steuern darf.'}
-        {modus === 'steuern' && 'Der Planer setzt die Sollwerte. Sicherheitsregeln gelten weiter; ist der Plan älter als 30 min, übernimmt die heutige Steuerung.'}
+        {modus === 'aus' && 'Planer (Regeln) – die festen Regeln im Collector entscheiden allein: Untergrenze halten, am Wartetag auf die Sonne warten, mit Überschuss nach Priorität den Estrich laden, ohne Sonne Profil-Räume auf Normal (Netzgrenze), abends und nachts nur die Untergrenze.'}
+        {modus === 'schatten' && 'KI rechnet mit – die KI rechnet alle 15 min einen Plan und schreibt auf, was sie anders gemacht hätte; an den Raumreglern ändert sie nichts. Der Planer (feste Regeln im Collector) setzt weiter die Sollwerte. So sehen wir im Vergleich („Wo stehen wir?“), ob die KI besser wäre, bevor sie steuern darf.'}
+        {modus === 'steuern' && 'KI steuert – der Collector setzt die Sollwerte nach dem Plan der KI (alle 15 min ein neuer Plan, umgesetzt jede Minute), immer innerhalb der festen Regeln: ohne Sonnenstrom heizt sie nur so weit, wie die Regeln es erlauben (am Wartetag, abends und nachts nur bis zur Untergrenze, an Tagen ohne Sonne Profil-Räume bis Normal), die Netzgrenze gilt. Sicherheit gilt weiter: manuell übersteuerte und abgeschaltete Räume bleiben unberührt; kein Raum fällt unter die Untergrenze, keiner wird über den PV-Wert geheizt. Ist der Plan älter als 30 min, übernimmt die Regel-Steuerung. Jeder Plan wird je Raum gegen die Messwerte geprüft: Heizt er länger als nötig, aus dem Netz über das Ziel, oder übersteuerst du den Raum oft, steuert die Regel-Steuerung diesen Raum (mindestens 2 h) – der Modus bleibt.'}
       </div>
       {s.dry_run && <div className="muted small">Hinweis: Der Collector läuft im Testmodus – auch die heutige Steuerung schreibt nichts nach Loxone.</div>}
 
@@ -114,6 +129,7 @@ function Steuerung({ data, reload, kiOffen, onNavigate }) {
           </div>
         )}
         {msg && <div className="alert" style={{ marginTop: 8 }}>{msg}</div>}
+        {info && <div className="notice" style={{ marginTop: 8 }}>{info}</div>}
       </div>
 
       <div className="auto-2">
