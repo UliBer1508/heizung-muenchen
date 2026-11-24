@@ -79,7 +79,7 @@ Supabase → Edge Functions → **Secrets** → hinzufügen:
 | `MCP_CLIENT_ID` | frei wählbar, z. B. `meine-heizung-alexa` |
 | `MCP_CLIENT_SECRET` | langer Zufallswert, z. B. erzeugt mit `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"` |
 | `MCP_ALLOWED_EMAILS` | deine Anmelde-E-Mail der Heizungs-App München |
-| `MCP_APP_URL` | Adresse der Heizungs-App, z. B. `https://heizung-muenchen.vercel.app` (ohne `/` am Ende) |
+| `MCP_APP_URL` | Adresse der Heizungs-App, z. B. `https://<deine-app>.vercel.app` (ohne `/` am Ende) |
 | `MCP_PUBLIC_BASE` | dieselbe Adresse wie `MCP_APP_URL` |
 
 Client-ID und -Secret brauchst du in Schritt 4 noch einmal. Nicht ins Repo schreiben.

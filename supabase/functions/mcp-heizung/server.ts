@@ -14,7 +14,7 @@
 // Secrets (Supabase → Edge Functions → Secrets):
 //   MCP_CLIENT_ID, MCP_CLIENT_SECRET   frei gewählt, dieselben Werte im Alexa+-Add-on
 //   MCP_ALLOWED_EMAILS                 Konten, die verknüpfen dürfen (Ulis Login der Heizungs-App)
-//   MCP_APP_URL                        Heizungs-App München, z. B. https://heizung-muenchen.vercel.app
+//   MCP_APP_URL                        Heizungs-App München, z. B. https://<deine-app>.vercel.app
 //   MCP_PUBLIC_BASE                    öffentliche Basis-Adresse (Standard: die Function-URL)
 //   MCP_REDIRECT_HOSTS                 optional: weitere erlaubte Rücksprung-Hosts
 //
