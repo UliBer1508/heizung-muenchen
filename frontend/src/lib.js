@@ -13,6 +13,7 @@ export const MODE_META = {
   // Raum (PV gilt auch fürs Haus: Überschuss wird nach Priorität auf die Räume verteilt)
   NORMAL: { label: 'Normal', tone: 'neutral', hint: 'Raum auf Normaltemperatur' },
   ABSENK: { label: 'Untergrenze', tone: 'night', hint: 'Raum hält seine Untergrenze' },
+  FRUEH_AUS: { label: 'Früh zu', tone: 'night', hint: 'Ohne Sonne nur Untergrenze: Ventil früh zu, weil der Raum mit seinem Überlauf die Untergrenze erreicht – Estrich wird nicht geladen' },
   WARTET: { label: 'Wartet', tone: 'night', hint: 'Ventil zu – Netzgrenze voll oder zu wenig Überschuss, Räume mit kleinerer Prio-Nummer sind zuerst dran' },
   PV: { label: 'PV', tone: 'sun', hint: 'Überschuss wird nach Priorität auf die Räume verteilt – Estrich laden' },
   VOLL: { label: 'Voll', tone: 'green', hint: 'Batterie voll – maximal laden' },

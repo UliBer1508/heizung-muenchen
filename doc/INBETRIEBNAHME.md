@@ -375,3 +375,23 @@ Aus Heizung Venediger übernommen, nur im München-Repo:
 Nichts zu tun: Vercel baut automatisch, die App holt sich die neue Version beim nächsten Öffnen.
 Startbild und Kurzbefehle erscheinen erst, wenn die App einmal vom Home-Bildschirm entfernt und neu hinzugefügt wird
 (iPhone: Safari › Teilen › Zum Home-Bildschirm).
+
+## 18. Update: Nachts nur Untergrenze und Haltezeit (Collector 0.13.0, 24.11.2026)
+
+Beschreibung: `doc/NACHT-UND-HALTEZEIT-2026-11-24.md`. Aus Venediger übernommen (Nachts nur Min, Haltezeit Stufe A):
+ohne Sonne Ventil früh zu, Kreis mindestens die Haltezeit halten, wartende Räume nicht nachführen, Nacht-Prüfung,
+KI-Regel 5 und Erfolgskontrolle, Hinweis „Ventil bleibt offen“.
+
+1. Supabase › SQL-Editor: `supabase/migration-016-nacht-haltezeit.sql` ausführen. Am Ende stehen Überlauf je Raum
+   und die gelernte Haltezeit.
+2. Mini-PC:
+   ```powershell
+   cd C:\Users\ulibe\heizung-muenchen
+   git pull
+   C:\nssm\nssm.exe restart HeizungMuenchen
+   ```
+   Im Log: „Collector 0.13.0 startet“, nachts `[FRUEH-ZU] …`.
+3. App (Vercel baut automatisch): Einstellungen › **Nacht und Haltezeit** – Schalter, Haltezeit, Überlauf, Hin und Her, Nächte.
+4. Alexa: deployt die GitHub-Aktion beim Merge (nur ein neues Wort).
+
+Bewertung EMHASS/HiGHS für München: `doc/EMHASS-HIGHS-BEWERTUNG-2026-11-24.md` (jetzt nicht einbauen, Wiedervorlage).

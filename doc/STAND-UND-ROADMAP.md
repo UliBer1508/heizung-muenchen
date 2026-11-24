@@ -231,6 +231,12 @@ Seit 0.5 heißen die Spalten in der App *Absenk / Normal / PV-Laden / Batterie v
 - ✅ **„Wo stehen wir?“ wie Venediger (22.11.2026, migration-015):** Auto-Steuerung Abschnitt 1 mit Woche/Monat/Jahr,
   Vergleich Vorperiode, Stand-Uhrzeit, Ampeln, Ziel kWh je Heizgradtag (selbst festlegen); Übersicht: Heizstrom Heute/Woche/
   Monat/Jahr. Offen: Strompreis eintragen (sonst nur kWh). `WO-STEHEN-WIR.md`.
+- ✅ **Nachts nur Untergrenze und Haltezeit wie Venediger (24.11.2026, Collector 0.13, migration-016):** ohne Sonne Ventil
+  früh zu (gemessener Überlauf), Haltezeit gegen das Flackern an der Netzgrenze (gelernt: Anspringzeit der Wärmepumpe),
+  wartende Räume nicht nachführen, Nacht-Prüfung, KI-Regel 5 „Untergrenze 0,5 °C tiefer?“, Erfolgskontrolle,
+  Hinweis „Ventil bleibt offen“ (EG Wohnzimmer). `NACHT-UND-HALTEZEIT-2026-11-24.md`.
+- ⏸ **EMHASS / HiGHS (geprüft 24.11.2026): jetzt nicht.** Wiedervorlage, wenn die Wärmepumpe im LAN ist und Venediger
+  ein Ergebnis mit Sonnentagen hat. `EMHASS-HIGHS-BEWERTUNG-2026-11-24.md`.
 
 ---
 

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from './supabase.js';
 import { Klappkarte } from './Klapp.jsx';
 import Datensicherung from './Datensicherung.jsx';
+import NachtHaltezeit from './NachtHaltezeit.jsx';
 
 const HOUSE_FIELDS = [
   { group: 'Tagesablauf', fields: [
@@ -414,6 +415,8 @@ export default function Settings({ data, reload }) {
         ))}
         <button className="btn primary" disabled={busy} onClick={() => saveHouse()}>Haus-Einstellungen speichern</button>
       </Klappkarte>
+
+      <NachtHaltezeit settings={s} rooms={data.rooms} saveHouse={saveHouse} busy={busy} />
 
       <Strompreis setMsg={setMsg} />
 
