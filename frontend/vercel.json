@@ -1,0 +1,14 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    { "source": "/mcp", "destination": "https://pflnniklvqbwjwrjswaz.supabase.co/functions/v1/mcp-heizung/mcp" },
+    { "source": "/oauth/:path*", "destination": "https://pflnniklvqbwjwrjswaz.supabase.co/functions/v1/mcp-heizung/oauth/:path*" },
+    { "source": "/.well-known/oauth-protected-resource/:path*", "destination": "https://pflnniklvqbwjwrjswaz.supabase.co/functions/v1/mcp-heizung/.well-known/oauth-protected-resource" },
+    { "source": "/.well-known/oauth-protected-resource", "destination": "https://pflnniklvqbwjwrjswaz.supabase.co/functions/v1/mcp-heizung/.well-known/oauth-protected-resource" },
+    { "source": "/.well-known/oauth-authorization-server/:path*", "destination": "https://pflnniklvqbwjwrjswaz.supabase.co/functions/v1/mcp-heizung/.well-known/oauth-authorization-server" },
+    { "source": "/.well-known/oauth-authorization-server", "destination": "https://pflnniklvqbwjwrjswaz.supabase.co/functions/v1/mcp-heizung/.well-known/oauth-authorization-server" }
+  ],
+  "headers": [
+    { "source": "/(mcp|oauth/.*)", "headers": [{ "key": "Cache-Control", "value": "no-store" }] }
+  ]
+}

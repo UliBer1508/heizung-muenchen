@@ -7,7 +7,11 @@
 // Alexa schaltet NIE direkt, sondern schreibt auf denselben Wegen wie die jeweilige App:
 //   München    muc_rooms.override_temp / override_until (+ Protokoll in muc_decisions)
 //   Venediger  wie useTuyaControl: thermostat_commands (lokal) bzw. tuya-control/set-temp (Cloud)
-//              + rooms.manual_override_until / target_temp; Anwesenheit in presence_periods
+//              + rooms.manual_override_until / target_temp; Abwesenheit in presence_periods
+//              (seit 01.11.2026 bedeuten Einträge dort ABWESENHEIT – Venediger KONZEPT-ANWESENHEIT §9)
+//
+// 24.11.2026: Jede Antwort nennt das Haus („München: …“). Anwesenheit Venediger auf die neue Regel umgestellt:
+//   „ich bin weg (bis …)“ = Abwesenheit ab jetzt, „ich bin da / zurück“ = laufende Abwesenheit endet jetzt.
 //
 // Welches Haus? 1. „… in Venediger / in München / in beiden Häusern“
 //               2. sonst das Haus, in dem das Echo steht (ALEXA_VEN_DEVICES)
@@ -200,8 +204,8 @@ function houseFromSlot(slot: any): { house: House | null; both: boolean } {
   return { house: null, both: false };
 }
 
-// Ansage mit Hausnamen, wenn es nicht das Haus des Echos ist
-const where = (ctx: Ctx, h: House) => (h !== ctx.home || ctx.both ? `In ${HOUSE_NAME[h]}: ` : '');
+// Jede Ansage beginnt mit dem Haus – sonst ist unklar, welche Heizung gemeint ist (Uli, 24.11.2026)
+const where = (_ctx: Ctx, h: House) => `${HOUSE_NAME[h]}: `;
 
 // ----------------------------------------------------------------- Daten
 async function loadRooms(h: House): Promise<Room[]> {
@@ -362,7 +366,7 @@ async function statusVen(): Promise<string> {
   if (mode?.computed_at && Date.now() - new Date(mode.computed_at).getTime() > 30 * 60000) {
     parts.push('Achtung, die Automatik hat seit über einer halben Stunde nichts berechnet.');
   }
-  if (presence) parts.push(presence.away ? 'Das Haus gilt als leer.' : `Ihr seid da bis ${tag(presence.until!)}, ${uhr(presence.until!)} Uhr.`);
+  if (presence) parts.push(presence.away ? `Das Haus gilt als leer bis ${tag(presence.until!)}.` : 'Das Haus gilt als bewohnt.');
   if (mode?.mode) parts.push(`Tagesmodus: ${VEN_DAY_MODE[mode.mode] ?? mode.mode}.`);
   const heating = rooms.filter((r) => r.is_heating);
   parts.push(heating.length ? `Es heizen gerade ${heating.length === 1 ? 'ein Raum' : `${heating.length} Räume`}: ${heating.map((r) => say(r.name)).join(', ')}.` : 'Gerade heizt kein Raum.');
@@ -501,88 +505,89 @@ async function alleAutomatik(ctx: Ctx): Promise<Reply> {
 
 async function automatik(slots: any, ctx: Ctx): Promise<Reply> {
   if ((ctx.house ?? 'muc') === 'ven') {
-    return { text: 'Für Venediger gibt es keinen Hauptschalter. Die Automatik stellst du dort je Raum in der App ein.' };
+    return { text: 'Venediger: Hier gibt es keinen Hauptschalter. Die Automatik stellst du je Raum in der App ein.' };
   }
   const v = (slotId(slots?.schalter) ?? slots?.schalter?.value ?? '').toString().toLowerCase();
   const on = ['an', 'ein', 'einschalten', 'aktivieren', 'on'].includes(v) ? true
     : ['aus', 'ausschalten', 'deaktivieren', 'off', 'stopp'].includes(v) ? false : null;
   if (on == null) {
     const s = await mucSettings();
-    return { text: `In München ist die Automatik ${s.automation_enabled ? 'an' : 'aus'}.${s.dry_run ? ' Der Testmodus ist an.' : ''}` };
+    return { text: `München: Die Automatik ist ${s.automation_enabled ? 'an' : 'aus'}.${s.dry_run ? ' Der Testmodus ist an.' : ''}` };
   }
   const { error } = await db.from('muc_settings').update({ automation_enabled: on }).eq('id', 1);
   if (error) throw error;
   await mucLog(null, null, `Alexa: Automatik ${on ? 'eingeschaltet' : 'ausgeschaltet'}`);
-  return { text: on ? 'Okay, die Automatik in München ist wieder an.' : 'Okay, die Automatik in München ist aus. Loxone regelt jetzt mit den eigenen Werten.' };
+  return { text: on ? 'München: Okay, die Automatik ist wieder an.' : 'München: Okay, die Automatik ist aus. Loxone regelt jetzt mit den eigenen Werten.' };
 }
 
 // ----------------------------------------------------------------- Anwesenheit (nur Venediger)
-// Gleiche Regel wie die App (usePresence.computePresence) und pv-automation.
+// Seit 01.11.2026: Grundzustand ANWESEND, presence_periods = Abwesenheiten. Gleiche Regel wie die App
+// (usePresence.computePresence) und pv-automation: „anwesend“ beginnt presence_lead_hours vor end_at (Rückkehr).
+async function presenceSettings() {
+  const { data } = await db.from('heating_settings')
+    .select('presence_control_enabled, presence_lead_hours, presence_arrival_time').limit(1).maybeSingle();
+  return {
+    enabled: data?.presence_control_enabled !== false,
+    lead: Math.max(0, Math.min(72, Number(data?.presence_lead_hours ?? 6) || 0)),
+    arrival: String(data?.presence_arrival_time ?? '14:00').slice(0, 5),
+  };
+}
+
 async function presenceState(): Promise<{ away: boolean; until: string | null; next: string | null } | null> {
-  const { data: hs } = await db.from('heating_settings').select('presence_control_enabled, presence_lead_hours').limit(1).maybeSingle();
-  if (hs && hs.presence_control_enabled === false) return null;
-  const lead = Math.max(0, Math.min(72, Number(hs?.presence_lead_hours ?? 6) || 0));
+  const s = await presenceSettings();
+  if (!s.enabled) return null;
   const now = Date.now();
   const { data, error } = await db.from('presence_periods').select('start_at, end_at')
     .gt('end_at', new Date(now).toISOString()).order('start_at');
   if (error) return null;
   const open = data ?? [];
-  const active = open.filter((p) => new Date(p.start_at).getTime() - lead * 3600000 <= now);
-  if (active.length) return { away: false, until: active.map((p) => p.end_at).sort().at(-1)!, next: null };
-  return { away: true, until: null, next: open[0]?.start_at ?? null };
+  const awayNow = open.filter((p) => new Date(p.start_at).getTime() <= now && new Date(p.end_at).getTime() - s.lead * 3600000 > now);
+  const next = open.find((p) => new Date(p.start_at).getTime() > now)?.start_at ?? null;
+  if (awayNow.length) return { away: true, until: awayNow.map((p) => p.end_at).sort().at(-1)!, next };
+  return { away: false, until: null, next };
 }
 
-async function presenceTimes() {
-  const { data } = await db.from('heating_settings').select('presence_departure_time').limit(1).maybeSingle();
-  return { departure: (data?.presence_departure_time ?? '11:00').toString().slice(0, 5) };
-}
-
-// nächster Sonntag (heute ausgenommen) als YYYY-MM-DD
-function nextSunday(): string {
-  const d = new Date(today() + 'T12:00:00Z');
-  d.setUTCDate(d.getUTCDate() + ((7 - d.getUTCDay()) % 7 || 7));
-  return d.toISOString().slice(0, 10);
-}
-
-async function ankunft(slots: any): Promise<Reply> {
+// „ich bin weg (bis …)“ – Abwesenheit ab jetzt, ohne Datum eine Woche bis zur Standard-Rückkehr (wie Schnellschalter)
+async function weg(slots: any): Promise<Reply> {
+  const s = await presenceSettings();
+  if (!s.enabled) return { text: 'Venediger: Die Anwesenheitssteuerung ist in der App ausgeschaltet.' };
   const bisSlot: string | undefined = slots?.bis?.value;
-  const { departure } = await presenceTimes();
   let endIso: string;
-  if (bisSlot && /^\d{4}-\d{2}-\d{2}$/.test(bisSlot)) endIso = localToIso(bisSlot, departure);
-  else endIso = localToIso(nextSunday(), '18:00'); // wie der Schnellschalter in der App
+  if (bisSlot && /^\d{4}-\d{2}-\d{2}$/.test(bisSlot)) endIso = localToIso(bisSlot, s.arrival);
+  else {
+    const d = new Date(today() + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + 7);
+    endIso = localToIso(d.toISOString().slice(0, 10), s.arrival);
+  }
   if (new Date(endIso).getTime() <= Date.now() + 15 * 60000) {
-    return { text: 'Das Abreisedatum liegt in der Vergangenheit. Sag zum Beispiel: Ich bin da bis Sonntag.', end: false };
+    return { text: 'Venediger: Die Rückkehr liegt in der Vergangenheit. Sag zum Beispiel: Ich bin weg bis Sonntag.', end: false };
   }
   const { error } = await db.from('presence_periods').insert({
     start_at: new Date().toISOString(), end_at: endIso, note: 'Alexa', source: 'quick',
   });
   if (error) throw error;
-  return { text: `Okay, in Venediger bist du eingetragen bis ${tag(endIso)}, ${uhr(endIso)} Uhr. Die Heizung arbeitet ab jetzt wie bei Anwesenheit.` };
+  return { text: `Venediger: Okay, abwesend bis ${tag(endIso)}, ${uhr(endIso)} Uhr. Vor der Rückkehr wird vorgeheizt.` };
 }
 
-async function abreise(): Promise<Reply> {
+// „ich bin da / zurück“ – laufende Abwesenheiten enden jetzt (wie backNow); künftige bleiben
+async function zurueck(): Promise<Reply> {
   const nowIso = new Date().toISOString();
-  const { data, error } = await db.from('presence_periods').select('id')
-    .lt('start_at', nowIso).gt('end_at', nowIso);
+  const { data, error } = await db.from('presence_periods').select('id').lt('start_at', nowIso).gt('end_at', nowIso);
   if (error) throw error;
-  if (!data?.length) {
-    const st = await presenceState();
-    return { text: st?.away === false ? 'Gerade läuft nur der Vorlauf vor einer geplanten Ankunft, den habe ich nicht geändert.' : 'In Venediger ist ohnehin niemand eingetragen.' };
-  }
+  if (!data?.length) return { text: 'Venediger: Es läuft keine Abwesenheit, das Haus gilt schon als bewohnt.' };
   const { error: e2 } = await db.from('presence_periods').update({ end_at: nowIso, updated_at: nowIso }).in('id', data.map((p) => p.id));
   if (e2) throw e2;
-  return { text: 'Okay, in Venediger ausgetragen. Das Haus gilt jetzt als leer, es wird nur noch mit Sonnenstrom geheizt.' };
+  return { text: 'Venediger: Willkommen zurück. Das Haus gilt ab jetzt als bewohnt.' };
 }
 
 async function anwesenheitAbfrage(): Promise<Reply> {
   const st = await presenceState();
-  if (!st) return { text: 'Die Anwesenheitssteuerung in Venediger ist ausgeschaltet.' };
-  if (!st.away) return { text: `In Venediger seid ihr eingetragen bis ${tag(st.until!)}, ${uhr(st.until!)} Uhr.` };
-  return { text: st.next ? `Venediger ist gerade leer. Die nächste Ankunft ist am ${tag(st.next)}.` : 'Venediger ist gerade leer, und es ist keine Ankunft eingetragen.' };
+  if (!st) return { text: 'Venediger: Die Anwesenheitssteuerung ist ausgeschaltet.' };
+  if (st.away) return { text: `Venediger: Das Haus gilt als leer bis ${tag(st.until!)}, ${uhr(st.until!)} Uhr.` };
+  return { text: st.next ? `Venediger: Das Haus gilt als bewohnt. Die nächste Abwesenheit beginnt am ${tag(st.next)}.` : 'Venediger: Das Haus gilt als bewohnt, es ist keine Abwesenheit eingetragen.' };
 }
 
 const HELP = 'Du kannst zum Beispiel fragen: Wie hoch ist der Eigenverbrauch? Wie warm ist es im Wohnzimmer in Venediger? '
-  + 'Oder sagen: Stelle das Bad im Keller für zwei Stunden auf dreiundzwanzig Grad. Oder: Ich bin da bis Sonntag.';
+  + 'Oder sagen: Stelle das Bad im Keller für zwei Stunden auf dreiundzwanzig Grad. Oder: Ich bin weg bis Sonntag.';
 
 // ----------------------------------------------------------------- Prüfung & Ablauf
 function check(body: any): string | null {
@@ -639,8 +644,9 @@ Deno.serve(async (req) => {
         case 'RaumAutomatikIntent': return raumAutomatik(slots, ctx);
         case 'AlleAutomatikIntent': return alleAutomatik(ctx);
         case 'AutomatikIntent': return automatik(slots, ctx);
-        case 'AnkunftIntent': return ankunft(slots);
-        case 'AbreiseIntent': return abreise();
+        // Sprachmodell unverändert: „ich bin da …“ (AnkunftIntent) = zurück, „ich bin weg …“ (AbreiseIntent) = Abwesenheit
+        case 'AnkunftIntent': return zurueck();
+        case 'AbreiseIntent': return weg(slots);
         case 'AnwesenheitIntent': return anwesenheitAbfrage();
         case 'AMAZON.HelpIntent': return { text: HELP, end: false };
         case 'AMAZON.CancelIntent':

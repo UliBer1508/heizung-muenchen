@@ -7,13 +7,15 @@ const KINDS = {
   sequence: 'Reihenfolge',
   error: 'Fehler',
   alexa: 'Alexa',
+  alexa_plus: 'Alexa+',
   ki: 'KI',
 };
 
 export default function Log({ data }) {
   const [filter, setFilter] = useState('all');
   const roomName = Object.fromEntries(data.rooms.map((r) => [r.id, r.name]));
-  const rows = data.decisions.filter((d) => filter === 'all' || d.kind === filter);
+  // Filter „Alexa“ zeigt Skill (alexa) und Alexa+-Add-on (alexa_plus)
+  const rows = data.decisions.filter((d) => filter === 'all' || d.kind === filter || (filter === 'alexa' && d.kind === 'alexa_plus'));
   return (
     <div className="stack">
       <div className="seg">

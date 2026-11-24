@@ -1,6 +1,13 @@
 # Alexa-Skill „Meine Heizung“ – München und Venediger
 
-**Stand:** 29.10.2026 · **Status:** eingerichtet und getestet (Alexa-Simulator), Skill im Entwicklungsmodus
+**Stand:** 24.11.2026 · **Status:** eingerichtet und getestet (Alexa-Simulator), Skill im Entwicklungsmodus
+
+> **24.11.2026:** Jede Antwort beginnt jetzt mit dem Haus („München: …“, „Venediger: …“). Die Anwesenheitsbefehle
+> folgen der neuen Venediger-Regel (Kalender = Abwesenheit): „ich bin weg (bis …)“ trägt eine Abwesenheit ein,
+> „ich bin da“ beendet sie. Nachfolger in freier Sprache: Alexa+-Add-on, siehe [`ALEXA-PLUS.md`](ALEXA-PLUS.md).
+>
+> Hinweis: `alexa/interaction-model-de-DE.json` im Repo ist noch der ältere Stand (13 Intents, ohne Haus- und
+> Anwesenheits-Intents). In der Developer Console ist der neuere Stand mit 16 Intents eingespielt.
 
 Ein Alexa-Skill für **beide Häuser**. Beide liegen im selben Supabase-Projekt `pflnniklvqbwjwrjswaz`
 („KI-Heizungssteuerung“): München in den `muc_`-Tabellen, Venediger in `rooms`, `energy_readings`,
@@ -44,7 +51,7 @@ nicht überschreiben, und es gelten dieselben Grenzen.
 **Räume** werden aus der Datenbank erkannt (`muc_rooms` bzw. `rooms`), neue oder umbenannte Räume
 funktionieren also ohne Änderung am Skill. Das Haus des Echos hat Vorrang. Das andere Haus gewinnt nur
 mit klar besserem Treffer, z. B. gibt es „Bad Uli“, „Zimmer Luca“ oder „Kinderbad“ nur in Venediger. Alexa
-sagt dann „In Venediger: …“ dazu. Bei „Wohnzimmer“ gilt das Haus des Echos.
+nennt das Haus in jeder Antwort. Bei „Wohnzimmer“ gilt das Haus des Echos.
 
 Geschoss als Wort oder Kürzel: Keller/KG, Erdgeschoss/EG, Obergeschoss/OG, Dachgeschoss/DG. Bei
 Mehrdeutigkeit fragt Alexa nach („Meinst du KG Bad oder DG Bad?“), und die kurze Antwort genügt („Keller“).
@@ -63,9 +70,9 @@ Fragen beginnen mit „Alexa, **frag** meine Heizung, …“, Befehle mit „Ale
 | „… Wohnzimmer wieder automatisch“ | Übersteuerung beenden |
 | „… alle Räume wieder automatisch“ (auch „… in Venediger“) | alle Übersteuerungen eines Hauses beenden |
 | „… Automatik aus“ / „… an“ | nur München |
-| „… ich bin da bis Sonntag“ | Venediger: anwesend ab jetzt bis zum Datum (Standard-Abreisezeit, sonst 11:00); ohne Datum bis kommenden Sonntag 18:00 |
-| „… ich bin weg“ | Venediger: laufende Anwesenheit endet jetzt, künftige Einträge bleiben |
-| „… bis wann sind wir eingetragen?“ | Venediger: anwesend bis / leer, nächste Ankunft |
+| „… ich bin weg bis Sonntag“ | Venediger: abwesend ab jetzt bis zum Datum (Standard-Rückkehr, sonst 14:00); ohne Datum eine Woche |
+| „… ich bin da“ (auch „… ich bin da bis …“) | Venediger: laufende Abwesenheit endet jetzt, künftige Einträge bleiben |
+| „… bis wann sind wir eingetragen?“ | Venediger: bewohnt bzw. leer bis …, nächste Abwesenheit |
 
 ## 4. Einrichtung (so wurde es am 29.10.2026 gemacht)
 

@@ -149,6 +149,14 @@ Automatik und Raumgrenzen. Abfragen: Eigenverbrauch/Autarkie, Raumtemperatur, St
 wieder automatisch, Automatik an/aus; Venediger zusätzlich Anwesenheit („Ich bin da bis Sonntag“).
 Einrichtung, Befehle und Fehlersuche: [`ALEXA.md`](ALEXA.md).
 
+### 2.4b Alexa+-Add-on „Meine Heizung“ (24.11.2026)
+
+Freie Sprache über Alexa+ statt fester Sätze. Die Edge Function `mcp-heizung` ist ein MCP-Server mit 13 Tools für
+beide Häuser (lesen: Status, Raum, Energie, KI-Hinweise, Rückblick, Anwesenheit; schreiben: Raum stellen/automatisch,
+Automatik München, Abwesenheit Venediger). Anmeldung OAuth 2.1, Kontoverknüpfung über die App (`/?alexa=…`),
+öffentlich über die Vercel-Adresse der App. Jede Antwort nennt das Haus. Protokoll Art `alexa_plus`.
+Einrichtung und offene Punkte (Phase 0: Deutsch, eigene Echos): [`ALEXA-PLUS.md`](ALEXA-PLUS.md).
+
 ### 2.5 Raumtemperaturen (°C) – Startwerte vom 23.10.2026
 
 Seit 0.5 heißen die Spalten in der App *Absenk / Normal / PV-Laden / Batterie voll*. Die EG-Räume starteten mit
