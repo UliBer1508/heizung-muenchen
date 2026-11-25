@@ -16,7 +16,7 @@ import {
   shouldCaptureDayContext, allocateRooms, trackHeatRuns, dayModeOf, PV_FULL, localMinutes, haltezeitOf,
 } from './logic.js';
 
-const VERSION = '0.14.0';
+const VERSION = '0.15.0';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const stateDir = process.env.STATE_DIR || path.join(here, '..', 'state');
 const cacheFile = path.join(stateDir, 'cache.json');

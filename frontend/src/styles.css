@@ -536,3 +536,33 @@ select, input[type='number'], input[type='time'], input[type='email'], input[typ
 @media (max-width: 900px) { .wsw-ampeln { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 560px) { .wsw-ampeln { grid-template-columns: 1fr; } .wsw-fazit { font-size: 16px; } }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+
+/* Räume in den Einstellungen – Karten wie Venediger (25.11.2026): Min · Normal · PV-Max */
+.rk-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; margin-top: 12px; }
+@media (max-width: 760px) { .rk-grid { grid-template-columns: 1fr; } }
+.rk { border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 12px; background: var(--card); }
+.rk-kopf { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.rk-titel { min-width: 0; }
+.rk-name { font-size: 17px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rk-badges { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; flex: none; }
+.rk-temps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.rk-temp { display: flex; flex-direction: column; gap: 4px; }
+.rk-temp input { width: 100%; min-width: 0; font-size: 16px; font-weight: 600; }
+.rk-temp input.err { border-color: var(--rose); }
+.rk-temp-l { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 500; }
+.rk-temp-l.min { color: var(--night); }
+.rk-temp-l.normal { color: var(--green); }
+.rk-temp-l.pvmax { color: var(--sun); }
+.rk-hilfe { margin: 6px 0 0; }
+.rk-box { border: 1px solid var(--line); border-radius: 10px; }
+.rk-zeile { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 12px; }
+.rk-zeile + .rk-zeile { border-top: 1px solid var(--line); }
+.rk-akku { padding-left: 2px; }
+.rk-technik-kopf { all: unset; box-sizing: border-box; width: 100%; display: flex; justify-content: space-between; align-items: center; cursor: pointer; font-size: 14px; color: var(--muted); }
+.rk-technik-kopf:hover { color: var(--ink); }
+.rk-technik-kopf:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; border-radius: 6px; }
+.rk-technik { background: var(--neutral-bg); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; }
+.rk-aktion { display: flex; gap: 8px; flex-wrap: wrap; }
+.rk-legende { background: var(--neutral-bg); border-radius: 10px; padding: 10px 12px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; color: var(--muted); }
+.rk-legende .rk-temp-l { font-size: 13px; font-weight: 600; }
+@media (max-width: 760px) { .rk-legende { grid-template-columns: 1fr; } }
