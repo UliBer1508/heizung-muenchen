@@ -1,4 +1,7 @@
 // Heizung jetzt (München) – Gegenstück zur Karte „Heizung jetzt“ in Heizung Venediger (10.11.2026).
+// 25.11.2026 (doc/HEIZUNG-JETZT-WIE-VENEDIGER-2026-11-25.md): gleicher Aufbau wie Venediger – drei Zahlen
+// (Wärmepumpe · Kreise offen · Grenze), Prüfzeile mit Erklärung, „Woher kommt der Heizstrom?“ mit Zeitraum,
+// Räume mit Begründung der Automatik, „Netzstrom sparen“. Uli 24.11.2026: beide Systeme sollen gleich sein.
 // Unterschied: In München heizt eine Wärmepumpe über Wasser-FBH mit einem Ventil je Raum.
 // Ein offener Kreis hat keine eigene Leistung, und die Wärmepumpe wird (noch) nicht gemessen.
 // Darum: Kreise offen statt „laut Thermostaten“, Wärmepumpe GESCHÄTZT = Verbrauch − Auto − Grundlast
@@ -6,7 +9,7 @@
 // Nur lesend – keine Änderung an der Steuerung.
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from './supabase.js';
-import { fmtW, fmtTime } from './lib.js';
+import { fmtW, fmtT, fmtTime, modeMeta } from './lib.js';
 
 const kwh = (v) => (v == null ? '–' : `${Number(v).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} kWh`);
 const todayBerlin = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Berlin' });
@@ -105,7 +108,7 @@ function useHeatPeriod(z, today) {
 }
 
 export default function HeatingNow({ data }) {
-  const { energy: e, settings, rooms, latestByRoom } = data;
+  const { energy: e, settings, rooms, latestByRoom, decisions } = data;
   const base = settings?.baseload_w ?? 350;
   const cap = settings?.max_grid_circuits ?? 6;
 
@@ -122,26 +125,77 @@ export default function HeatingNow({ data }) {
     : per.ab ? `seit ${dmy(per.ab)}${per.ab > per.von ? ` (Daten erst ab ${dmy(per.ab)})` : ''} · ${per.tage} ${per.tage === 1 ? 'Tag' : 'Tage'}`
       : `seit ${dmy(per.von)}`;
 
-  // Wärmepumpe jetzt (geschätzt) und Herkunft – gleiche Rechnung wie muc_energy_rows
+  // Wärmepumpe jetzt (geschätzt) – gleiche Rechnung wie muc_energy_rows
   const cons = e?.consumption_w ?? null;
   const car = e?.car_w ?? 0;
   const wp = cons == null ? null : Math.max(0, cons - car - base);
-  let src = null;
-  if (wp != null && cons > 0) {
-    const gridIn = Math.max(0, e.grid_w ?? 0);
-    const batOut = Math.max(0, e.battery_w ?? 0);
-    const fBat = Math.min(1, batOut / cons);
-    const fGrid = Math.min(1, gridIn / cons);
-    const fSun = Math.max(0, 1 - (gridIn + batOut) / cons);
-    src = { sun: wp * fSun, bat: wp * fBat, grid: wp * fGrid };
-  }
+  const gridIn = Math.max(0, e?.grid_w ?? 0);
+  const batW = e?.battery_w ?? null;   // + entladen / − laden
+  const mitPv = (e?.pv_w ?? 0) > 30;
 
+  // Begründung je offenem Kreis: letzte Entscheidung der Automatik (muc_decisions, kind 'write') der letzten 3 h
+  const letzte = useMemo(() => {
+    const m = {};
+    const grenze = Date.now() - 3 * 3600e3;
+    for (const d of decisions ?? []) {
+      if (d.kind !== 'write' || !d.room_id || m[d.room_id] || new Date(d.ts).getTime() < grenze) continue;
+      m[d.room_id] = d;
+    }
+    return m;
+  }, [decisions]);
+  const grund = (r) => {
+    const rd = latestByRoom[r.id] ?? {};
+    const ziel = rd.setpoint ?? rd.target;
+    if (r.override_until && new Date(r.override_until).getTime() > Date.now())
+      return { art: 'manuell', text: `Manuell bis ${fmtTime(r.override_until)}${r.override_temp != null ? ` (${fmtT(r.override_temp)})` : ''}` };
+    const d = letzte[r.id];
+    if (d && (d.mode === 'WARTET' || d.mode === 'AUS'))
+      return { art: 'folgt_nicht', text: `Ventil offen, obwohl die Automatik um ${fmtTime(d.ts)} „${modeMeta(d.mode).label}“ geschrieben hat – folgt der Automatik (noch) nicht` };
+    if (rd.temp != null && ziel != null && Number(rd.temp) >= Number(ziel))
+      return { art: 'nachlauf', text: `Ziel ${fmtT(ziel)} erreicht, Kreis noch offen – Loxone schließt nach Raumregelung` };
+    if (d?.reason) return { art: 'automatik', text: `${d.reason} (Befehl ${fmtTime(d.ts)})` };
+    return { art: 'unbekannt', text: 'Keine Begründung der Automatik in den letzten 3 h' };
+  };
+  const gruende = Object.fromEntries(open.map((r) => [r.id, grund(r)]));
+
+  // Prüfzeile – erklärt, statt zu fragen (wie erklaereAbweichung in Venediger)
+  const messMs = e?.ts ? new Date(e.ts).getTime() : null;
+  const alterMin = messMs ? Math.round((Date.now() - messMs) / 60e3) : null;
+  const spaeter = open.filter((r) => since[r.id] && messMs && new Date(since[r.id]).getTime() > messMs);
+  const zeitText = spaeter.length
+    ? ` Gemessen wird nur alle paar Minuten (letzte Messung ${fmtTime(e.ts)}): ${spaeter.map((r) => `${r.name} ist erst seit ${fmtTime(since[r.id])} offen`).join(', ')} – zählt für den Vergleich noch nicht.`
+    : '';
+  const autoText = car > 50 ? `Auto lädt ${fmtW(car)}, ist schon abgezogen.` : 'Auto lädt nicht.';
+  const nebenbei = [];
+  if (car > 50) nebenbei.push(`Auto lädt ${fmtW(car)} (schon abgezogen)`);
+  if (batW != null && batW < -100) nebenbei.push(`Batterie lädt ${fmtW(-batW)}`);
+  if (batW != null && batW > 100) nebenbei.push(`Batterie gibt ${fmtW(batW)} ab`);
   const check = wp == null ? null
-    : open.length === 0 && wp > 800
-      ? { ok: false, t: `Kein Kreis offen, trotzdem ${fmtW(wp)} über der Grundlast – vermutlich Warmwasser der Wärmepumpe oder ein anderer Verbraucher.` }
-      : open.length > 0 && wp < 300
-        ? { ok: true, t: 'Kreise offen, die Wärmepumpe läuft gerade nicht – sie schaltet nach Vorlauftemperatur, das ist normal.' }
-        : { ok: true, t: open.length ? 'Kreise offen und Wärmepumpe läuft – passt zusammen.' : 'Kein Kreis offen, Wärmepumpe aus.' };
+    : alterMin != null && alterMin > 7
+      ? { ok: false, t: `Die letzte Energiemessung ist ${alterMin} min alt – kein Vergleich möglich. Läuft der Collector?` }
+      : open.length === 0 && wp > 800
+        ? { ok: false, t: `Kein Kreis offen, trotzdem ${fmtW(wp)} über der Grundlast. ${autoText} Wahrscheinlich Warmwasser der Wärmepumpe${mitPv ? '' : ' oder ein Gerät im Haus (Herd, Backofen)'}.` }
+        : open.length > 0 && wp < 300
+          ? { ok: true, t: `Kreise offen, die Wärmepumpe läuft gerade nicht – sie schaltet nach Vorlauftemperatur, das ist normal.${zeitText}` }
+          : { ok: true, t: `${open.length ? 'Kreise offen und Wärmepumpe läuft – passt zusammen.' : 'Kein Kreis offen, Wärmepumpe aus.'}${zeitText}` };
+
+  // Netzstrom sparen – nur Hinweise, ändert nichts
+  const tipps = [];
+  const nach = open.filter((r) => gruende[r.id]?.art === 'nachlauf');
+  if (gridIn > 200 && nach.length)
+    tipps.push(`${nach.map((r) => r.name).join(', ')} ${nach.length === 1 ? 'ist' : 'sind'} über dem Ziel und noch offen, während Strom aus dem Netz kommt. Ursache ist die Raumregelung in Loxone (Schaltdifferenz).`);
+  const folgt = open.filter((r) => gruende[r.id]?.art === 'folgt_nicht');
+  if (folgt.length)
+    tipps.push(`${folgt.map((r) => r.name).join(', ')}: Ventil folgt der Automatik nicht. In Loxone prüfen, ob der Raum auf manuell steht.`);
+  if (open.length > cap && !mitPv)
+    tipps.push(`${open.length} Kreise offen, Netzgrenze ${cap} – ohne Sonne mehr Kreise als vorgesehen.`);
+
+  const w = per.w;
+  const parts = w ? [
+    { ...SRC[0], v: Number(w.heat_pv_kwh ?? 0) },
+    { ...SRC[1], v: Number(w.heat_bat_kwh ?? 0) },
+    { ...SRC[2], v: Number(w.heat_grid_kwh ?? 0) },
+  ] : [];
 
   return (
     <section className="card heatnow">
@@ -158,42 +212,68 @@ export default function HeatingNow({ data }) {
         </div>
         <div>
           <div className="eyebrow">Kreise offen</div>
-          <div className="tile-value">{open.length} von {cap}</div>
-          <div className="muted small">Netzgrenze {cap} Kreise · mit Überschuss mehr</div>
+          <div className="tile-value">{open.length}</div>
+          <div className="muted small">{open.length === 1 ? 'Ventil offen' : 'Ventile offen'} · ohne eigene Leistung</div>
         </div>
         <div>
-          <div className="eyebrow">Heizstrom {zrName}</div>
-          <div className="tile-value">{per.fehler ? '–' : kwh(per.w?.heat_kwh)}</div>
-          <div className="muted small">{per.fehler ? 'Bitte supabase/migration-015-wo-stehen-wir.sql ausführen.' : `geschätzt, ${zrSeit}`}</div>
+          <div className="eyebrow">Grenze</div>
+          <div className="tile-value">{cap} Kreise</div>
+          <div className="muted small">ohne Sonne · mit Überschuss mehr · belegt {open.length}</div>
+        </div>
+      </div>
+
+      {check && (
+        <div className={check.ok ? 'heatnow-check' : 'notice-warn'}>{check.ok ? '✓ ' : '⚠ '}{check.t}{nebenbei.length ? ` ${nebenbei.join(' · ')}.` : ''}</div>
+      )}
+
+      <div className="heatnow-src">
+        <div className="heatnow-src-head">
+          <div>
+            <div className="eyebrow">Woher kommt der Heizstrom?</div>
+            <div className="heatnow-src-total">{per.fehler ? '–' : kwh(w?.heat_kwh)} <span className="muted small">{per.fehler ? 'Bitte supabase/migration-015-wo-stehen-wir.sql ausführen.' : `${zrName} · ${zrSeit}`}</span></div>
+          </div>
           <div className="seg seg-4 heat-zr" role="group" aria-label="Zeitraum Heizstrom">
             {ZR.map(([k, l]) => (
               <button key={k} type="button" className={zr === k ? 'seg-btn active' : 'seg-btn'} aria-pressed={zr === k} onClick={() => setZr(k)}>{l}</button>
             ))}
           </div>
         </div>
+        {w?.heat_kwh > 0 && <Bar parts={parts} unit={kwh} />}
       </div>
-
-      {src && wp > 0 && <Bar parts={SRC.map((s) => ({ ...s, v: src[s.k] }))} unit={fmtW} />}
-
-      {check && (
-        <div className={check.ok ? 'heatnow-check' : 'notice-warn'}>{check.ok ? '✓ ' : ''}{check.t}</div>
-      )}
 
       {open.length > 0 && (
         <div className="heatnow-list">
-          {open.map((r) => (
-            <div key={r.id}>
-              <span className="heatnow-flame" aria-hidden>●</span>
-              <strong>{r.name}</strong>
-              <span className="muted"> · {since[r.id] === undefined ? '' : since[r.id] === null ? 'seit über 24 h offen' : `offen seit ${fmtTime(since[r.id])}`}</span>
-            </div>
-          ))}
+          {open.map((r) => {
+            const rd = latestByRoom[r.id] ?? {};
+            const g = gruende[r.id];
+            return (
+              <div key={r.id}>
+                <div>
+                  <span className="heatnow-flame" aria-hidden>●</span>
+                  <strong>{r.name}</strong>
+                  <span className="muted">
+                    {since[r.id] === undefined ? '' : since[r.id] === null ? ' · seit über 24 h offen' : ` · offen seit ${fmtTime(since[r.id])}`}
+                    {rd.temp != null ? ` · ${fmtT(rd.temp)}` : ''}
+                  </span>
+                </div>
+                <div className={`heatnow-why small ${g?.art === 'folgt_nicht' ? 'warn' : 'muted'}`}>{g?.text}</div>
+              </div>
+            );
+          })}
         </div>
       )}
 
-      {per.w?.heat_kwh != null && (
+      {tipps.length > 0 && (
+        <div className="notice-warn">
+          <strong>Netzstrom sparen</strong>
+          <ul className="heatnow-tipps">{tipps.map((t, i) => <li key={i}>{t}</li>)}</ul>
+          <div className="small">Nur Hinweise – die Karte ändert keine Einstellung.</div>
+        </div>
+      )}
+
+      {w?.heat_kwh != null && (
         <div className="heatnow-foot muted small">
-          {zr === 'heute' ? 'Heute' : `${zrName[0].toUpperCase()}${zrName.slice(1)}`} {kwh(per.w.heat_kwh)} Heizstrom: Sonne {kwh(per.w.heat_pv_kwh)} · Akku {kwh(per.w.heat_bat_kwh)} · Netz {kwh(per.w.heat_grid_kwh)}.
+          Herkunft anteilig aus Netzbezug, Batterie-Entladung und Sonne.
           {zr !== 'heute' && ' Tage bis gestern aus den gespeicherten Tageswerten, heute live.'}
           {' '}Die Wärmepumpe wird nicht gemessen – Schätzung aus Verbrauch − Auto − Grundlast {fmtW(base)} (Einstellung „Grundlast Haus“).
         </div>

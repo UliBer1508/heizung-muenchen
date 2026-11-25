@@ -586,3 +586,12 @@ select, input[type='number'], input[type='time'], input[type='email'], input[typ
 .wsw-erkl > summary::before { content: '\24D8'; }
 .wsw-erkl > summary:hover { color: var(--ink); }
 .wsw-erkl[open] > div { margin-top: 6px; padding: 10px 12px; border-radius: 10px; background: var(--neutral-bg); line-height: 1.5; }
+/* Heizung jetzt – gleicher Aufbau wie Venediger (25.11.2026) */
+.heatnow-src { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
+.heatnow-src-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 10px; }
+.heatnow-src-total { font-size: 20px; font-weight: 600; }
+.heatnow-list { border-top: 1px solid var(--line); padding-top: 12px; }
+.heatnow-why { margin-left: 19px; }
+.heatnow-why.warn { color: var(--sun); }
+.heatnow-tipps { margin: 4px 0; padding-left: 20px; }
+.heatnow-src .heat-zr { width: auto; margin-top: 0; }
