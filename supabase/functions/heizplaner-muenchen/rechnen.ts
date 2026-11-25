@@ -20,6 +20,9 @@ import { netzGrenze } from '../_shared/heizregeln.ts';
 import { neuerStand, pruefePlan, type Messwert, type PruefStand, type RaumPruefung } from './pruefung.ts';
 
 export const PLAN_AUFBEWAHREN_TAGE = 3;
+// MÜNCHEN (25.11.2026, migration-020): Wasser-Fußbodenheizung – Rohre unten im Estrich, viel mehr Masse als die Heizmatten
+// in Venediger. Der Estrich-Zustand wird deshalb aus 24 h Vorgeschichte nachgerechnet (Venediger: 12 h = 48 Slots).
+export const HIST_SLOTS = 96;
 
 // ---------------------------------------------------------------- Zeit (MÜNCHEN: Ortszeit Europe/Berlin)
 export const TZ = 'Europe/Berlin';   // MÜNCHEN
@@ -65,7 +68,7 @@ export function fensterFuer(a: Aufb, rid: string, alleH: number, laengeH: number
     const st = Array.from({ length: laengeH * 4 }, (_, i) => t0 + 900 * i);
     if (!st.every(x => m.has(x) && a.e15.has(x) && a.wet.has(wkey(x)))) continue;
     const T0 = m.get(t0)!.t;
-    const hz = Array.from({ length: 48 }, (_, i) => t0 - 900 * (48 - i));
+    const hz = Array.from({ length: HIST_SLOTS }, (_, i) => t0 - 900 * (HIST_SLOTS - i));
     out.push({
       T0,
       histT: hz.map(x => m.get(x)?.t ?? T0), histH: hz.map(x => m.get(x)?.h ?? 0),
@@ -130,7 +133,7 @@ export function baue(d: Daten, a: Aufb, start: number, pvVon: (ep: number, i: nu
     const gespeichert = d.modell?.[r.id]?.param;
     const param: RaumParam = istV2(gespeichert) ? gespeichert : STANDARD_PARAM;   // altes Modell → bis zum nächsten Lernen Standard
     const m = a.smp.get(r.id);
-    const hz = Array.from({ length: 48 }, (_, i) => start - 900 * (48 - i));
+    const hz = Array.from({ length: HIST_SLOTS }, (_, i) => start - 900 * (HIST_SLOTS - i));
     const S0 = estrichStart(param, hz.map(x => m?.get(x)?.t ?? t0), hz.map(x => m?.get(x)?.h ?? 0), t0);
     // MÜNCHEN: Normal / Untergrenze aus muc_rooms; Ziel nach Raumprofil (morgens/tagsüber angehakt → Normal, sonst Untergrenze);
     // Höchstwert = PV-Wert (Räume ohne PV-Laden: Normal + 0,5 °C). Min hart wie Venediger (sicher = Untergrenze, 14.11.2026).
