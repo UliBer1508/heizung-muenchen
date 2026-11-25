@@ -20,7 +20,7 @@
 //   pv_lernen         – PV-Vorhersage je Stunde lernen (03:00)
 //   vergleich tag=…   – Gegenrechnung eines Tages (Standard: gestern)
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0';
-import { PLAN_AUFBEWAHREN_TAGE, TZ, lerneAus, leistung, planAus, pvLernenAus, vergleichAus, type Daten } from './rechnen.ts';
+import { PLAN_AUFBEWAHREN_TAGE, TZ, lerneAus, vortagsGuete, leistung, planAus, pvLernenAus, vergleichAus, type Daten } from './rechnen.ts';
 import type { PruefStand, RaumPruefung } from './pruefung.ts';
 
 const corsHeaders = {
@@ -147,12 +147,24 @@ async function lernen(sb: any, raumId: string, tage: number) {
   const d = await datenLaden(sb, tage);
   const r = d.raeume.find((x: any) => x.id === raumId);
   if ((await ventilHaengt(sb)).has(raumId)) return { ok: false, raum: r?.name ?? raumId, grund: 'Ventil hängt – Modell wird nicht gelernt' };
+  // 25.11.2026 (wie Venediger): zuerst prüfen, wie gut das Modell von gestern die seither gemessenen Stunden vorhergesagt
+  // hat – ein Fehler hier darf das Lernen nicht aufhalten (rechnen.ts › vortagsGuete, migration-019)
+  let guete: unknown = null;
+  try {
+    const { data: alt } = await sb.from('muc_heizmodell').select('param, gelernt_at').eq('room_id', raumId).maybeSingle();
+    const g = vortagsGuete(d, raumId, alt);
+    if (g) {
+      const tag = new Date().toLocaleDateString('sv-SE', { timeZone: TZ });
+      const { error: gErr } = await sb.from('muc_heizmodell_guete').upsert({ tag, room_id: raumId, raum: r?.name ?? null, ...g }, { onConflict: 'tag,room_id' });
+      guete = gErr ? `nicht gespeichert: ${gErr.message}` : g;
+    }
+  } catch (e) { guete = `Fehler: ${String(e)}`; }
   const erg = lerneAus(d, raumId, tage);
-  if (!erg.ok) return erg;
+  if (!erg.ok) return { ...erg, guete };
   const zeile = { ...erg.zeile, p_w: leistung(r) };   // MÜNCHEN: Leistung je Kreis mit speichern
   const { error: upErr } = await sb.from('muc_heizmodell').upsert(zeile, { onConflict: 'room_id' });
   if (upErr) throw new Error(`muc_heizmodell: ${upErr.message}`);
-  return { ok: true, ...zeile, fenster: erg.fenster };
+  return { ok: true, ...zeile, fenster: erg.fenster, guete };
 }
 
 async function pvLernen(sb: any, tage: number) {

@@ -42,6 +42,7 @@ export const BLOCK = 2;              // Entscheidung je 30 min (2 Slots)
 export interface RaumParam { v: 2; k: number; g: number; u: number; r: number; s: number; c: number }
 
 export interface Fenster {
+  t0?: number;                               // Start (Unix-Sekunden), 25.11.2026 für die Vorhersage-Güte
   T0: number;
   histT: number[]; histH: number[];         // 12 h vor dem Start (älteste zuerst), für den Estrich-Zustand
   h: number[]; tout: number[]; pvkw: number[];   // je Schritt

@@ -17,6 +17,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../supabase.js';
 import { bereich, heuteOrt, plusTage, verschieben } from './zeit.js';
 import KiGegenRegeln from './KiGegenRegeln.jsx';
+import ModellGuete from './ModellGuete.jsx';
 
 const n = (v, d = 0) => (v == null || !Number.isFinite(Number(v)) ? '–'
   : Number(v).toLocaleString('de-DE', { minimumFractionDigits: d, maximumFractionDigits: d }));
@@ -317,6 +318,8 @@ export default function WoStehenWir({ onNavigate }) {
 
         {/* 24.11.2026 (wie Venediger 16.11.): Gegenrechnung jeden Morgen hier – darf die KI steuern? */}
         <KiGegenRegeln />
+        {/* 25.11.2026 (wie Venediger): sehen, ob die KI über die Zeit besser vorhersagt */}
+        <ModellGuete />
       </section>
 
       {/* 2 Wohin wollen wir? */}

@@ -581,3 +581,13 @@ select, input[type='number'], input[type='time'], input[type='email'], input[typ
 .wsw-drei { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .wsw-drei > div { background: var(--neutral-bg); border-radius: 10px; padding: 12px; line-height: 1.45; }
 @media (max-width: 760px) { .wsw-drei { grid-template-columns: 1fr; } }
+
+/* Lernt das Modell dazu? (25.11.2026, wie Venediger ModellGuete) */
+.mg-kacheln { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 760px) { .mg-kacheln { grid-template-columns: 1fr; } }
+.mg-kachel { background: var(--neutral-bg); border-radius: 10px; padding: 12px; }
+.mg-wert { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.mg-tabelle { width: 100%; min-width: 520px; border-collapse: collapse; }
+.mg-tabelle th { text-align: left; font-weight: 500; padding: 4px 8px 4px 0; }
+.mg-tabelle td { border-top: 1px solid var(--line); padding: 6px 8px 6px 0; font-variant-numeric: tabular-nums; vertical-align: middle; }
+.mg-tabelle .r { text-align: right; }

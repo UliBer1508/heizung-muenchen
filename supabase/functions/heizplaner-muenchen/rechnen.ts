@@ -67,7 +67,7 @@ export function fensterFuer(a: Aufb, rid: string, alleH: number, laengeH: number
     const T0 = m.get(t0)!.t;
     const hz = Array.from({ length: 48 }, (_, i) => t0 - 900 * (48 - i));
     out.push({
-      T0,
+      t0, T0,
       histT: hz.map(x => m.get(x)?.t ?? T0), histH: hz.map(x => m.get(x)?.h ?? 0),
       h: st.map(x => m.get(x)!.h), tout: st.map(x => a.wet.get(wkey(x))!.t),
       pvkw: st.map(x => a.e15.get(x)![2] / 1000),
@@ -267,6 +267,25 @@ export function planAus(d: Daten, nichtSteuerbar: Set<string>, abw: Abwesenheit 
            waerme_kwh: r1(erg.waermeKwh), nachfuehrung: f,
            jetzt: jetzt.filter(j => j.plan_heizt || j.steuerung_heizt).map(j => `${j.name}: Planer ${j.plan_heizt ? 'heizt' : '–'}, Steuerung ${j.steuerung_heizt ? 'heizt' : '–'}`) };
   return { zeile, antwort, erg, raeume, pruefung, stand };
+}
+
+// ---------------------------------------------------------------- Vorhersage-Güte jede Nacht (25.11.2026, wie Venediger)
+// Vor dem nächtlichen Neu-Lernen sagt das Modell von GESTERN die Stunden voraus, die es beim Lernen noch nicht kannte
+// (Start nach gelernt_at, 12 h voraus, jede Stunde ein Fenster). Kein Lernen, ändert nichts an der Steuerung.
+// Gespeichert in muc_heizmodell_guete (migration-019), angezeigt in „Wo stehen wir?“ › „Lernt das Modell dazu?“.
+export function vortagsGuete(d: Daten, raumId: string, alt: { param?: any; gelernt_at?: string | null } | null) {
+  if (!alt?.param || !istV2(alt.param) || !alt.gelernt_at) return null;
+  const seit = new Date(alt.gelernt_at).getTime() / 1000;
+  const wins = fensterFuer(aufbereiten(d), raumId, 1, 12).filter(w => (w.t0 ?? 0) >= seit);
+  if (wins.length < 3) return null;
+  const heiz = wins.filter(w => w.h.some(h => h >= 0.5));
+  const f = prognoseFehler(alt.param, wins, 47), fh = prognoseFehler(alt.param, heiz, 47);
+  if (!Number.isFinite(f.modell)) return null;
+  const rund = (x: number, n: number) => +x.toFixed(n);
+  return {
+    fehler_12h: rund(f.modell, 3), gleich_12h: rund(f.gleich, 3), n: f.n,
+    fehler_12h_heizen: fh.n ? rund(fh.modell, 3) : null, n_heizen: fh.n, modell_von: alt.gelernt_at,
+  };
 }
 
 /** Lernen ohne Schreiben (auch für die Prüfung „pruefen“). */
