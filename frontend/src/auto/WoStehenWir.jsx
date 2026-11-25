@@ -26,6 +26,8 @@ const wtag = (iso) => new Date(`${iso}T12:00:00Z`).toLocaleDateString('de-DE', {
 const tageZwischen = (von, bis) => Math.round((Date.parse(bis) - Date.parse(von)) / 86400000) + 1;
 const VOR = { woche: 'Vorwoche', monat: 'Vormonat', jahr: 'Vorjahr' };
 const MON = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
+// Balkenfarben wie Venediger (emerald-600 / amber-500 / red-600)
+const ZIELFARBE = { gut: '#059669', mittel: '#f59e0b', schlecht: '#dc2626', neutral: '#94a3b8' };
 const AMPEL = { gut: 'var(--green)', mittel: 'var(--sun)', schlecht: 'var(--rose)', neutral: 'var(--muted)' };
 
 /** Vergleich mit der Vorperiode; jeTag: Summen je Tag vergleichen (Zeiträume verschieden lang). Weniger = besser. */
@@ -68,7 +70,7 @@ function ZielZeile({ titel, jetzt, ziel, breite, marke, farbe, hinweis, label })
         <span>jetzt <b>{jetzt}</b> → Ziel <b>{ziel}</b></span>
       </div>
       <div className="wsw-zbalken" role="img" aria-label={label}>
-        <div style={{ width: `${Math.max(0, Math.min(100, breite))}%`, background: AMPEL[farbe] }} />
+        <div style={{ width: `${Math.max(0, Math.min(100, breite))}%`, background: ZIELFARBE[farbe] }} />
         {marke != null && <i style={{ left: `${marke}%` }} />}
       </div>
       {hinweis && <div className="muted small">{hinweis}</div>}
@@ -175,7 +177,8 @@ export default function WoStehenWir({ onNavigate }) {
   if (!d.tage) return <div className="stack">{leiste}<div className="muted small">Für {b.titel} gibt es noch keine vollen Tage.</div></div>;
 
   const s = d.summe;
-  const ziel = d.ziel != null ? Number(d.ziel) : null;
+  // 25.11.2026: wie Venediger – ohne eigenes Ziel gilt 2,0 kWh je Heizgradtag (änderbar mit „Ziel ändern“)
+  const ziel = d.ziel != null ? Number(d.ziel) : 2.0;
   const kwh = s.kwh_je_hgt != null ? Number(s.kwh_je_hgt) : null;
   const tageMin = Number(d.tage_min ?? 0), tageNormal = Number(d.tage_normal ?? 0);
   const minJeNacht = s.h_unter_min != null && tageMin > 0 ? Number(s.h_unter_min) / tageMin : null;
