@@ -9,6 +9,9 @@
 //   - Euro nur, wenn ein Strompreis eingetragen ist (Einstellungen › Strompreis); sonst kWh.
 //   - „Min“ = Untergrenze je Raum; nachts = Nachtzeit aus den Einstellungen.
 //   - Kein Abgleich mit einer Stromrechnung; Ziel kWh je Heizgradtag ohne Vorgabe – Uli setzt es selbst.
+// 25.11.2026 (Uli: „Die Heizung München sollte so aussehen wie Venediger“): Aufbau 1:1 wie OptimierungView –
+//   1 Wo stehen wir? · 2 Wohin wollen wir? (Zielbalken) · 3 Wie kommen wir dahin? (Vorschläge mit Übernehmen/Ablehnen,
+//   „So optimiert die Steuerung“) · Kommen wir voran? (Verlauf). Ohne Abgleich Stromrechnung (gibt es in München nicht).
 // Daten: muc_wo_stehen_wir / muc_wo_stehen_wir_verlauf (supabase/migration-015-wo-stehen-wir.sql).
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '../supabase.js';
@@ -57,11 +60,56 @@ function AmpelKarte({ ampel, label, frage, children }) {
   );
 }
 
+function ZielZeile({ titel, jetzt, ziel, breite, marke, farbe, hinweis, label }) {
+  return (
+    <div className="wsw-ziel-zeile">
+      <div className="wsw-row wsw-zw">
+        <strong>{titel}</strong>
+        <span>jetzt <b>{jetzt}</b> → Ziel <b>{ziel}</b></span>
+      </div>
+      <div className="wsw-zbalken" role="img" aria-label={label}>
+        <div style={{ width: `${Math.max(0, Math.min(100, breite))}%`, background: AMPEL[farbe] }} />
+        {marke != null && <i style={{ left: `${marke}%` }} />}
+      </div>
+      {hinweis && <div className="muted small">{hinweis}</div>}
+    </div>
+  );
+}
+
+function VorschlagKarte({ v, onFertig }) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const entscheiden = async (action) => {
+    setBusy(true); setMsg(null);
+    const { data, error } = await supabase.rpc('muc_ki_decide', { p_id: v.id, p_action: action, p_value: null, p_note: null });
+    setBusy(false);
+    if (error || !data?.ok) { setMsg({ err: true, t: error?.message || data?.msg || 'Nicht gespeichert' }); return; }
+    setMsg({ t: data.msg || (action === 'ja' ? 'Übernommen' : 'Abgelehnt') });
+    setTimeout(onFertig, 1000);
+  };
+  return (
+    <div className="wsw-vorschlag">
+      <div className="wsw-row wsw-zw">
+        <strong>{v.title}</strong>
+        <span className="small" style={{ color: 'var(--sun)', fontWeight: 600 }}>{v.kind === 'ruecknahme' ? 'Rücknahme' : 'Neu'}</span>
+      </div>
+      {v.what && <div className="small"><b>Was:</b> {v.what}</div>}
+      {v.why && <div className="small muted"><b style={{ color: 'var(--ink)' }}>Warum:</b> {v.why}</div>}
+      {v.effect && <div className="small muted"><b style={{ color: 'var(--ink)' }}>Erwartet:</b> {v.effect}</div>}
+      {msg && <div className={msg.err ? 'alert small' : 'notice small'}>{msg.t}</div>}
+      <div className="wsw-row">
+        <button type="button" className="btn small primary" disabled={busy} onClick={() => entscheiden('ja')}>Übernehmen</button>
+        <button type="button" className="btn small" disabled={busy} onClick={() => entscheiden('nein')}>Ablehnen</button>
+      </div>
+    </div>
+  );
+}
+
 export default function WoStehenWir({ onNavigate }) {
   const [d, setD] = useState(null);
   const [v, setV] = useState(null);
   const [verlauf, setVerlauf] = useState([]);
-  const [ki, setKi] = useState({ offen: 0, entschieden: [] });
+  const [ki, setKi] = useState({ offen: [], entschieden: [] });
   const [fehler, setFehler] = useState(null);
   const [zielEdit, setZielEdit] = useState(null);
 
@@ -85,7 +133,8 @@ export default function WoStehenWir({ onNavigate }) {
       supabase.rpc('muc_wo_stehen_wir', { p_bis: bisEff, p_tage: Math.max(1, tageZr) }),
       supabase.rpc('muc_wo_stehen_wir', { p_bis: plusTage(vb.bis, -1), p_tage: tageZwischen(vb.von, plusTage(vb.bis, -1)) }),
       supabase.rpc('muc_wo_stehen_wir_verlauf', verlaufArg),
-      supabase.from('muc_ki_suggestions').select('id', { count: 'exact', head: true }).in('kind', ['vorschlag', 'ruecknahme']).eq('status', 'offen'),
+      supabase.from('muc_ki_suggestions').select('id, kind, title, what, why, effect').in('kind', ['vorschlag', 'ruecknahme']).eq('status', 'offen')
+        .order('created_at', { ascending: false }),
       supabase.from('muc_ki_suggestions').select('id, title, decided_at, effect_text').in('kind', ['vorschlag', 'ruecknahme'])
         .in('status', ['genehmigt', 'geaendert']).order('decided_at', { ascending: false }).limit(5),
     ]);
@@ -94,7 +143,7 @@ export default function WoStehenWir({ onNavigate }) {
       return;
     }
     setFehler(null); setD(a.data); setV(vd.data ?? null); setVerlauf(vl.data ?? []);
-    setKi({ offen: offen.count ?? 0, entschieden: ent.data ?? [] });
+    setKi({ offen: offen.data ?? [], entschieden: ent.data ?? [] });
   }, [periode, bisEff, tageZr, vb.von, vb.bis]);
 
   useEffect(() => {
@@ -142,7 +191,7 @@ export default function WoStehenWir({ onNavigate }) {
 
   const fazit = [];
   fazit.push(sonne === 'gut' ? 'Sonnenstrom nutzen wir fast ganz.' : sonne === 'neutral' ? 'Kaum Sonnenstrom in diesem Zeitraum.' : 'Es geht noch Sonnenstrom ins Netz – hier ist etwas zu holen.');
-  if (min === 'schlecht') fazit.push('Aber Räume lagen nachts oft unter ihrer Untergrenze. Zuerst muss die Untergrenze sicher sein, dann wird gespart.');
+  if (min === 'schlecht') fazit.push('Aber das Haus hält seine Temperaturen nicht: Räume lagen oft unter Min. Zuerst muss Min sicher sein, dann wird gespart.');
   else if (ziel == null) fazit.push(`Die Heizung braucht ${n(kwh, 1)} kWh je Heizgradtag – lege unten ein Ziel fest, dann zeigt die Ampel, ob wir es schaffen.`);
   else if (heiz !== 'gut') fazit.push('Sparen geht jetzt nur noch über weniger Heizstrom aus dem Netz – das soll der Planer schaffen.');
   else fazit.push('Der Heizstrom liegt im Ziel.');
@@ -177,6 +226,18 @@ export default function WoStehenWir({ onNavigate }) {
     setZielEdit(null); laden();
   };
 
+  const zielBreite = kwh != null && ziel != null ? (100 * kwh) / (ziel * 1.6) : 0;
+  const zielBox = zielEdit == null ? (
+    <button type="button" className="wsw-link" onClick={() => setZielEdit(ziel == null ? '' : String(ziel).replace('.', ','))}>{ziel == null ? 'Ziel festlegen' : 'Ziel ändern'}</button>
+  ) : (
+    <span className="wsw-row">
+      <label htmlFor="wsw-ziel" className="small">kWh je Heizgradtag</label>
+      <input id="wsw-ziel" className="wsw-input" inputMode="decimal" value={zielEdit} onChange={(e) => setZielEdit(e.target.value)} />
+      <button type="button" className="btn small primary" onClick={zielSpeichern}>Speichern</button>
+      <button type="button" className="btn small ghost" onClick={() => setZielEdit(null)}>Abbrechen</button>
+    </span>
+  );
+
   return (
     <div className="stack wsw">
       {leiste}
@@ -189,91 +250,147 @@ export default function WoStehenWir({ onNavigate }) {
         <p className="wsw-fazit">{fazit.join(' ')}</p>
       </div>
 
-      <div className="card">
-        <div className="chart-title">{mitPreis ? 'Was kostet uns der Strom – und was spart die PV?' : 'Woher kam der Strom – und wie viel braucht die Heizung?'}</div>
-        <div className="kpis kpis-4" style={{ marginTop: 10 }}>
-          {mitPreis ? (
-            <>
-              <div><div className="eyebrow">Ohne PV hätten wir gezahlt</div><div className="tile-value">{eur(s.ohne_pv_eur)}</div><div className="muted small">{n(s.verbrauch_kwh)} kWh Verbrauch</div><Vgl jetzt={s.ohne_pv_eur} vor={vs?.ohne_pv_eur} tageJetzt={d.tage} tageVor={vTage} name={vName} jeTag format={eurF} nicht={keinEurVgl} /></div>
-              <div><div className="eyebrow">PV hat gespart</div><div className="tile-value" style={{ color: 'var(--green)' }}>− {eur(s.pv_ersparnis_eur)}</div><div className="muted small">{n(pvSelbst)} kWh selbst genutzt</div><Vgl jetzt={s.pv_ersparnis_eur} vor={vs?.pv_ersparnis_eur} tageJetzt={d.tage} tageVor={vTage} name={vName} jeTag mehrBesser format={eurF} nicht={keinEurVgl} /></div>
-              <div><div className="eyebrow">Netzstrom gezahlt</div><div className="tile-value">{eur(s.netz_eur)}</div><div className="muted small">{n(s.netz_kwh)} kWh aus dem Netz</div><Vgl jetzt={s.netz_eur} vor={vs?.netz_eur} tageJetzt={d.tage} tageVor={vTage} name={vName} jeTag format={eurF} nicht={keinEurVgl} /></div>
-              <div><div className="eyebrow">davon für die Heizung</div><div className="tile-value" style={{ color: 'var(--c-heiz)' }}>{eur(s.heizung_netz_eur)}</div><div className="muted small">{n(s.heizung_netz_kwh)} kWh Heizstrom aus dem Netz (geschätzt)</div><Vgl jetzt={s.heizung_netz_eur} vor={vs?.heizung_netz_eur} tageJetzt={d.tage} tageVor={vTage} name={vName} jeTag format={eurF} nicht={keinEurVgl} /></div>
-            </>
-          ) : (
-            <>
-              <div><div className="eyebrow">Verbrauch</div><div className="tile-value">{kwhF(s.verbrauch_kwh)}</div><div className="muted small">Ø {n(Number(s.verbrauch_kwh) / d.tage, 1)} kWh je Tag</div><Vgl jetzt={s.verbrauch_kwh} vor={vs?.verbrauch_kwh} tageJetzt={d.tage} tageVor={vTage} name={vName} jeTag format={kwhF} nicht={keinVgl} /></div>
-              <div><div className="eyebrow">Sonne selbst genutzt</div><div className="tile-value" style={{ color: 'var(--green)' }}>{kwhF(pvSelbst)}</div><div className="muted small">von {n(s.pv_kwh)} kWh PV</div><Vgl jetzt={pvSelbst} vor={vs ? Number(vs.pv_kwh) - Number(vs.einspeisung_kwh) : null} tageJetzt={d.tage} tageVor={vTage} name={vName} jeTag mehrBesser format={kwhF} nicht={keinVgl} /></div>
-              <div><div className="eyebrow">Aus dem Netz</div><div className="tile-value">{kwhF(s.netz_kwh)}</div><div className="muted small">Ø {n(Number(s.netz_kwh) / d.tage, 1)} kWh je Tag</div><Vgl jetzt={s.netz_kwh} vor={vs?.netz_kwh} tageJetzt={d.tage} tageVor={vTage} name={vName} jeTag format={kwhF} nicht={keinVgl} /></div>
-              <div><div className="eyebrow">davon für die Heizung</div><div className="tile-value" style={{ color: 'var(--c-heiz)' }}>{kwhF(s.heizung_netz_kwh)}</div><div className="muted small">Heizstrom aus dem Netz (geschätzt)</div><Vgl jetzt={s.heizung_netz_kwh} vor={vs?.heizung_netz_kwh} tageJetzt={d.tage} tageVor={vTage} name={vName} jeTag format={kwhF} nicht={keinVgl} /></div>
-            </>
-          )}
-        </div>
-        <div className="wsw-balken" role="img" aria-label={`${n(pvSelbst)} kWh Sonne selbst genutzt, ${n(restNetz)} kWh Netz für Warmwasser, Auto und Haus, ${n(heizNetz)} kWh Netz für die Heizung`}>
-          <div style={{ width: pct(pvSelbst), background: 'var(--green)' }} />
-          <div style={{ width: pct(restNetz), background: 'var(--c-rest)' }} />
-          <div style={{ width: pct(heizNetz), background: 'var(--c-heiz)' }} />
-        </div>
-        <div className="srclegend muted">
-          <span><i style={{ background: 'var(--green)' }} />Sonne selbst genutzt</span>
-          <span><i style={{ background: 'var(--c-rest)' }} />Netz: Warmwasser, Auto, Haus ({n(restNetz)} kWh)</span>
-          <span><i style={{ background: 'var(--c-heiz)' }} />Netz: Heizung – hier setzt die Steuerung an</span>
-        </div>
-        {!mitPreis && (
-          <div className="muted small" style={{ marginTop: 8 }}>
-            Euro-Beträge erscheinen, sobald ein Strompreis eingetragen ist.{' '}
-            <button type="button" className="btn small" onClick={() => onNavigate('settings')}>Strompreis eintragen</button>
+      {/* 1 Wo stehen wir? */}
+      <section className="stack" aria-labelledby="wsw-wo">
+        <h3 id="wsw-wo" className="wsw-h"><span className="muted">1</span> Wo stehen wir?</h3>
+        <div className="card">
+          <div className="chart-title">{mitPreis ? 'Was kostet uns der Strom – und was spart die PV?' : 'Woher kam der Strom – und wie viel braucht die Heizung?'}</div>
+          <div className="kpis kpis-4" style={{ marginTop: 10 }}>
+            {mitPreis ? (
+              <>
+                <div><div className="eyebrow">Ohne PV hätten wir gezahlt</div><div className="tile-value">{eur(s.ohne_pv_eur)}</div><div className="muted small">{n(s.verbrauch_kwh)} kWh Verbrauch</div><Vgl jetzt={s.ohne_pv_eur} vor={vs?.ohne_pv_eur} tageJetzt={d.tage} tageVor={vTage} name={vName} jeTag format={eurF} nicht={keinEurVgl} /></div>
+                <div><div className="eyebrow">PV hat gespart</div><div className="tile-value" style={{ color: 'var(--green)' }}>− {eur(s.pv_ersparnis_eur)}</div><div className="muted small">{n(pvSelbst)} kWh selbst genutzt</div><Vgl jetzt={s.pv_ersparnis_eur} vor={vs?.pv_ersparnis_eur} tageJetzt={d.tage} tageVor={vTage} name={vName} jeTag mehrBesser format={eurF} nicht={keinEurVgl} /></div>
+                <div><div className="eyebrow">Netzstrom gezahlt</div><div className="tile-value">{eur(s.netz_eur)}</div><div className="muted small">{n(s.netz_kwh)} kWh aus dem Netz</div><Vgl jetzt={s.netz_eur} vor={vs?.netz_eur} tageJetzt={d.tage} tageVor={vTage} name={vName} jeTag format={eurF} nicht={keinEurVgl} /></div>
+                <div><div className="eyebrow">davon für die Heizung</div><div className="tile-value" style={{ color: 'var(--c-heiz)' }}>{eur(s.heizung_netz_eur)}</div><div className="muted small">{n(s.heizung_netz_kwh)} kWh Heizstrom aus dem Netz (geschätzt)</div><Vgl jetzt={s.heizung_netz_eur} vor={vs?.heizung_netz_eur} tageJetzt={d.tage} tageVor={vTage} name={vName} jeTag format={eurF} nicht={keinEurVgl} /></div>
+              </>
+            ) : (
+              <>
+                <div><div className="eyebrow">Verbrauch</div><div className="tile-value">{kwhF(s.verbrauch_kwh)}</div><div className="muted small">Ø {n(Number(s.verbrauch_kwh) / d.tage, 1)} kWh je Tag</div><Vgl jetzt={s.verbrauch_kwh} vor={vs?.verbrauch_kwh} tageJetzt={d.tage} tageVor={vTage} name={vName} jeTag format={kwhF} nicht={keinVgl} /></div>
+                <div><div className="eyebrow">Sonne selbst genutzt</div><div className="tile-value" style={{ color: 'var(--green)' }}>{kwhF(pvSelbst)}</div><div className="muted small">von {n(s.pv_kwh)} kWh PV</div><Vgl jetzt={pvSelbst} vor={vs ? Number(vs.pv_kwh) - Number(vs.einspeisung_kwh) : null} tageJetzt={d.tage} tageVor={vTage} name={vName} jeTag mehrBesser format={kwhF} nicht={keinVgl} /></div>
+                <div><div className="eyebrow">Aus dem Netz</div><div className="tile-value">{kwhF(s.netz_kwh)}</div><div className="muted small">Ø {n(Number(s.netz_kwh) / d.tage, 1)} kWh je Tag</div><Vgl jetzt={s.netz_kwh} vor={vs?.netz_kwh} tageJetzt={d.tage} tageVor={vTage} name={vName} jeTag format={kwhF} nicht={keinVgl} /></div>
+                <div><div className="eyebrow">davon für die Heizung</div><div className="tile-value" style={{ color: 'var(--c-heiz)' }}>{kwhF(s.heizung_netz_kwh)}</div><div className="muted small">Heizstrom aus dem Netz (geschätzt)</div><Vgl jetzt={s.heizung_netz_kwh} vor={vs?.heizung_netz_kwh} tageJetzt={d.tage} tageVor={vTage} name={vName} jeTag format={kwhF} nicht={keinVgl} /></div>
+              </>
+            )}
           </div>
-        )}
-        {preisTeil && <div className="muted small" style={{ marginTop: 8 }}>Strompreis gilt erst für {d.tage_preis} von {d.tage} Tagen – die Euro-Werte sind unvollständig.</div>}
-        {mitPreis && s.grund_eur != null && <div className="muted small" style={{ marginTop: 8 }}>Kosten ohne Grundgebühr (in diesem Zeitraum {eur(s.grund_eur)}).</div>}
-      </div>
-
-      <div className="wsw-ampeln">
-        <AmpelKarte ampel={sonne} label={sonne === 'gut' ? 'Gut' : sonne === 'neutral' ? 'Kaum Sonne' : 'Noch Potenzial'} frage="Nutzen wir den Sonnenstrom ganz?">
-          {s.eigen_pct == null ? 'Keine PV-Erzeugung im Zeitraum.' : `${n(s.eigen_pct)} % des Sonnenstroms bleiben im Haus, ${n(s.einspeisung_kwh, 1)} kWh gingen ins Netz.`}
-          <Vgl jetzt={s.eigen_pct} vor={vs?.eigen_pct} tageJetzt={d.tage} tageVor={vTage} name={vName} mehrBesser format={pctF} nicht={keinVgl} />
-        </AmpelKarte>
-        <AmpelKarte ampel={heiz} label={ziel == null ? 'Kein Ziel' : heiz === 'gut' ? 'Im Ziel' : 'Hier liegt das Potenzial'} frage="Wie viel Strom braucht die Heizung?">
-          <b style={{ color: 'var(--ink)' }}>{n(kwh, 1)} kWh je Heizgradtag</b> – unser Maß, unabhängig vom Wetter.{ziel != null && ` Ziel ${n(ziel, 1)}.`}
-          <span className="wsw-zeile">Heizstrom {n(s.heizung_kwh)} kWh: Netz {n(s.heizung_netz_kwh)} · Sonne {n(s.heizung_pv_kwh)} · Batterie {n(s.heizung_batt_kwh)} (geschätzt).</span>
-          <Vgl jetzt={kwh} vor={vs?.kwh_je_hgt} tageJetzt={d.tage} tageVor={vTage} name={vName} format={kF} nicht={keinVgl} />
-        </AmpelKarte>
-        <AmpelKarte ampel={min} label={min === 'gut' ? 'Gehalten' : min === 'mittel' ? 'Fast gehalten' : min === 'neutral' ? 'Keine Raumwerte' : 'Nicht gehalten'} frage="Bleiben alle Räume nachts über ihrer Untergrenze?">
-          {minJeNacht == null ? 'Für diesen Zeitraum gibt es keine Raumwerte mehr (Raumwerte werden nach 90 Tagen gelöscht).'
-            : `${n(s.h_unter_min)} Raum-Stunden unter der Untergrenze (Ø ${n(minJeNacht, 1)} je Nacht), tagsüber ${n(normalJeTag)} Raum-Stunden je Tag unter Soll.`}
-          <Vgl jetzt={minJeNacht} vor={vMin} tageJetzt={d.tage} tageVor={vTage} name={`${vName} Ø je Nacht`} format={kF} nicht={keinRaumVgl} />
-        </AmpelKarte>
-        {/* 24.11.2026: Modus-Namen wie Venediger (16.11.2026) */}
-        <AmpelKarte ampel={planer} label={d.planer_modus === 'steuern' ? 'KI steuert' : d.planer_modus === 'aus' ? 'Planer (Regeln)' : 'KI rechnet mit'} frage="Wer steuert gerade?">
-          {d.planer_modus === 'steuern'
-            ? 'Die KI steuert – innerhalb der festen Regeln. Ob sie besser ist, zeigt die Gegenrechnung darunter.'
-            : 'Die festen Regeln (Collector) steuern. Die Gegenrechnung darunter zeigt jeden Morgen, ob die KI besser wäre.'}
-        </AmpelKarte>
-      </div>
-
-      {/* 24.11.2026 (wie Venediger 16.11.): Gegenrechnung jeden Morgen hier – darf die KI steuern? */}
-      <KiGegenRegeln />
-
-      <div className="card">
-        <div className="wsw-row wsw-zw">
-          <div className="chart-title">Wohin wollen wir? Heizstrom je Heizgradtag</div>
-          {zielEdit == null ? (
-            <button type="button" className="btn small" onClick={() => setZielEdit(ziel == null ? '' : String(ziel).replace('.', ','))}>{ziel == null ? 'Ziel festlegen' : 'Ziel ändern'}</button>
-          ) : (
-            <span className="wsw-row">
-              <label htmlFor="wsw-ziel" className="small">kWh je Heizgradtag</label>
-              <input id="wsw-ziel" className="wsw-input" inputMode="decimal" value={zielEdit} onChange={(e) => setZielEdit(e.target.value)} />
-              <button type="button" className="btn small primary" onClick={zielSpeichern}>Speichern</button>
-              <button type="button" className="btn small ghost" onClick={() => setZielEdit(null)}>Abbrechen</button>
-            </span>
+          <div className="wsw-balken" role="img" aria-label={`${n(pvSelbst)} kWh Sonne selbst genutzt, ${n(restNetz)} kWh Netz für Warmwasser, Auto und Haus, ${n(heizNetz)} kWh Netz für die Heizung`}>
+            <div style={{ width: pct(pvSelbst), background: 'var(--green)' }} />
+            <div style={{ width: pct(restNetz), background: 'var(--c-rest)' }} />
+            <div style={{ width: pct(heizNetz), background: 'var(--c-heiz)' }} />
+          </div>
+          <div className="srclegend muted">
+            <span><i style={{ background: 'var(--green)' }} />Sonne selbst genutzt</span>
+            <span><i style={{ background: 'var(--c-rest)' }} />Netz: Warmwasser, Auto, Haus ({n(restNetz)} kWh)</span>
+            <span><i style={{ background: 'var(--c-heiz)' }} />Netz: Heizung – hier setzt die Steuerung an</span>
+          </div>
+          {!mitPreis && (
+            <div className="muted small" style={{ marginTop: 8 }}>
+              Euro-Beträge erscheinen, sobald ein Strompreis eingetragen ist.{' '}
+              <button type="button" className="btn small" onClick={() => onNavigate('settings')}>Strompreis eintragen</button>
+            </div>
           )}
-        </div>
-        <div className="muted small" style={{ marginTop: 4 }}>
-          {ziel == null
-            ? `Jetzt ${n(kwh, 1)}. Ein Ziel ist noch nicht festgelegt – du bestimmst es selbst. Weniger ist besser.`
-            : <>Jetzt <b>{n(kwh, 1)}</b> → Ziel <b>{n(ziel, 1)}</b>. Weniger ist besser.{kwh != null && kwh > ziel && ` Im Ziel wären es rund ${n(Number(s.heizung_kwh) * (1 - ziel / kwh))} kWh Heizstrom weniger in ${d.tage} Tagen.`}</>}
+          {preisTeil && <div className="muted small" style={{ marginTop: 8 }}>Strompreis gilt erst für {d.tage_preis} von {d.tage} Tagen – die Euro-Werte sind unvollständig.</div>}
+          {mitPreis && s.grund_eur != null && <div className="muted small" style={{ marginTop: 8 }}>Kosten ohne Grundgebühr (in diesem Zeitraum {eur(s.grund_eur)}).</div>}
         </div>
 
+        <div className="wsw-ampeln">
+          <AmpelKarte ampel={sonne} label={sonne === 'gut' ? 'Gut' : sonne === 'neutral' ? 'Kaum Sonne' : 'Noch Potenzial'} frage="Nutzen wir den Sonnenstrom ganz?">
+            {s.eigen_pct == null ? 'Keine PV-Erzeugung im Zeitraum.' : `${n(s.eigen_pct)} % des Sonnenstroms bleiben im Haus, ${n(s.einspeisung_kwh, 1)} kWh gingen ins Netz.`}
+            <Vgl jetzt={s.eigen_pct} vor={vs?.eigen_pct} tageJetzt={d.tage} tageVor={vTage} name={vName} mehrBesser format={pctF} nicht={keinVgl} />
+          </AmpelKarte>
+          <AmpelKarte ampel={heiz} label={ziel == null ? 'Kein Ziel' : heiz === 'gut' ? 'Im Ziel' : 'Hier liegt das Potenzial'} frage="Wie viel Strom braucht die Heizung?">
+            <b style={{ color: 'var(--ink)' }}>{n(kwh, 1)} kWh je Heizgradtag</b> – unser Maß, unabhängig vom Wetter.{ziel != null && ` Ziel ${n(ziel, 1)}.`}
+            <span className="wsw-zeile">Heizstrom {n(s.heizung_kwh)} kWh: Netz {n(s.heizung_netz_kwh)} · Sonne {n(s.heizung_pv_kwh)} · Batterie {n(s.heizung_batt_kwh)} (geschätzt).</span>
+            <Vgl jetzt={kwh} vor={vs?.kwh_je_hgt} tageJetzt={d.tage} tageVor={vTage} name={vName} format={kF} nicht={keinVgl} />
+          </AmpelKarte>
+          <AmpelKarte ampel={min} label={min === 'gut' ? 'Gehalten' : min === 'mittel' ? 'Fast gehalten' : min === 'neutral' ? 'Keine Raumwerte' : 'Nicht gehalten'} frage="Bleiben alle Räume über Min?">
+            {minJeNacht == null ? 'Für diesen Zeitraum gibt es keine Raumwerte mehr (Raumwerte werden nach 90 Tagen gelöscht).'
+              : `${n(s.h_unter_min)} Raum-Stunden unter Min (Ø ${n(minJeNacht, 1)} je Nacht), tagsüber ${n(normalJeTag)} Raum-Stunden je Tag unter Normal.`}
+            <Vgl jetzt={minJeNacht} vor={vMin} tageJetzt={d.tage} tageVor={vTage} name={`${vName} Ø je Nacht`} format={kF} nicht={keinRaumVgl} />
+          </AmpelKarte>
+          {/* 24.11.2026: Modus-Namen wie Venediger (16.11.2026) */}
+          <AmpelKarte ampel={planer} label={d.planer_modus === 'steuern' ? 'KI steuert' : d.planer_modus === 'aus' ? 'Planer (Regeln)' : 'KI rechnet mit'} frage="Wer steuert gerade?">
+            {d.planer_modus === 'steuern'
+              ? 'Die KI steuert – innerhalb der festen Regeln. Ob sie besser ist, zeigt die Gegenrechnung darunter.'
+              : 'Die festen Regeln (Collector) steuern. Die Gegenrechnung darunter zeigt jeden Morgen, ob die KI besser wäre.'}
+          </AmpelKarte>
+        </div>
+
+        {/* 24.11.2026 (wie Venediger 16.11.): Gegenrechnung jeden Morgen hier – darf die KI steuern? */}
+        <KiGegenRegeln />
+      </section>
+
+      {/* 2 Wohin wollen wir? */}
+      <section className="stack" aria-labelledby="wsw-wohin">
+        <h3 id="wsw-wohin" className="wsw-h"><span className="muted">2</span> Wohin wollen wir?</h3>
+        <div className="card wsw-ziele">
+          <ZielZeile titel="Heizstrom je Heizgradtag senken" jetzt={n(kwh, 1)} ziel={ziel == null ? '–' : n(ziel, 1)}
+            breite={zielBreite} marke={ziel == null ? null : 100 / 1.6} farbe={heiz === 'gut' ? 'gut' : 'mittel'}
+            label={`Heizstrom je Heizgradtag: jetzt ${n(kwh, 1)}, Ziel ${ziel == null ? 'nicht festgelegt' : n(ziel, 1)}`}
+            hinweis={<span className="wsw-row">
+              {ziel == null ? 'Weniger ist besser. Ein Ziel ist noch nicht festgelegt – du bestimmst es selbst.' : 'Weniger ist besser, Strich = Ziel.'}
+              {ziel != null && kwh != null && kwh > ziel && <> Im Ziel wären es rund {n(Number(s.heizung_kwh) * (1 - ziel / kwh))} kWh{mitPreis && s.heizung_netz_eur != null && Number(s.heizung_netz_kwh) > 0
+                ? ` bzw. ${eur(Number(s.heizung_kwh) * (1 - ziel / kwh) * Number(s.heizung_netz_eur) / Number(s.heizung_netz_kwh))}` : ''} weniger in {d.tage} Tagen.</>}
+              {zielBox}
+            </span>} />
+          <ZielZeile titel="Sonnenstrom im Haus nutzen" jetzt={`${n(s.eigen_pct)} %`} ziel="100 %"
+            breite={Number(s.eigen_pct ?? 0)} farbe={sonne === 'gut' ? 'gut' : 'mittel'}
+            label={`Sonnenstrom genutzt: ${n(s.eigen_pct)} Prozent, Ziel 100 Prozent`}
+            hinweis={sonne === 'gut' ? 'Erreicht.' : undefined} />
+          <ZielZeile titel="Kein Raum unter Min" jetzt={`${n(s.h_unter_min)} Raum-Stunden`} ziel="0"
+            breite={minJeNacht != null ? Math.min(100, (100 * minJeNacht) / 12) : 0}
+            farbe={min === 'gut' ? 'gut' : min === 'mittel' ? 'mittel' : 'schlecht'}
+            label={`Raum-Stunden unter Min: ${n(s.h_unter_min)} in ${tageMin} Nächten, Ziel 0`}
+            hinweis="Die Grenze, die nie unterschritten werden darf – Sparen darf nicht auf Kosten von Min gehen." />
+        </div>
+      </section>
+
+      {/* 3 Wie kommen wir dahin? */}
+      <section className="stack" aria-labelledby="wsw-wie">
+        <h3 id="wsw-wie" className="wsw-h"><span className="muted">3</span> Wie kommen wir dahin?</h3>
+        <div className="card stack">
+          <div className="wsw-row wsw-zw">
+            <strong>Was du jetzt ändern solltest – Vorschläge der KI</strong>
+            <span className="muted small">Die KI ändert nichts selbst. Wirkung wird 3 Tage nach Übernahme gemessen.</span>
+          </div>
+          {ki.offen.length > 0
+            ? ki.offen.map((v) => <VorschlagKarte key={v.id} v={v} onFertig={laden} />)
+            : <div className="small">Die KI hat gerade keinen Vorschlag.</div>}
+          {ki.entschieden.length > 0 && (
+            <div>
+              <div className="small"><strong>Haben frühere Vorschläge geholfen?</strong></div>
+              <ul className="wsw-liste small">
+                {ki.entschieden.map((e) => (
+                  <li key={e.id}><span className="muted">{e.decided_at ? dm(e.decided_at.slice(0, 10)) : ''}</span> {e.title}{' – '}
+                    <span className="muted">{e.effect_text || 'Wirkung wird nach 3 Tagen gemessen'}</span></li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <div><button type="button" className="btn small" onClick={() => onNavigate('ki')}>Alle Vorschläge und Hinweise</button></div>
+        </div>
+
+        <div className="card stack">
+          <strong>So optimiert die Steuerung</strong>
+          <div className="wsw-drei small">
+            <div><div className="eyebrow">Sie weiß</div>Wie viel Sonne kommt (Prognose) und wie schnell jeder Raum auskühlt (Raummodell).</div>
+            <div><div className="eyebrow">Sie hält ein</div>Nie unter Min. Normal, wenn Strom günstig da ist. Bis PV-Max nur mit Sonne.</div>
+            <div><div className="eyebrow">Sie rechnet</div>Regelmäßig den Tagesplan mit dem wenigsten Netzstrom – bei Sonne Wärme in den Estrich „laden“.</div>
+          </div>
+          <div className="small">
+            <strong>Was du drehen kannst</strong>
+            <ul className="wsw-liste muted">
+              <li><b style={{ color: 'var(--ink)' }}>Normal und Min je Raum</b> – je größer der Abstand, desto mehr kann der Planer verschieben. Faustwert: jedes Grad weniger spart etwa 6 % Heizstrom.</li>
+              <li><b style={{ color: 'var(--ink)' }}>PV-Max je Raum</b> – wie viel Wärme bei Sonne „auf Vorrat“ in den Raum darf.</li>
+              <li><b style={{ color: 'var(--ink)' }}>Steuerung „KI steuert“</b> – nur dann plant die KI selbst (Abschnitt Steuerung unten).</li>
+            </ul>
+            <button type="button" className="btn small" style={{ marginTop: 8 }} onClick={() => onNavigate('settings')}>Räume einstellen</button>
+          </div>
+        </div>
+      </section>
+
+      {/* Verlauf */}
+      <section className="card" aria-labelledby="wsw-verlauf">
+        <h3 id="wsw-verlauf" className="chart-title">Kommen wir voran? Heizstrom je Heizgradtag</h3>
         <div className="wsw-verlauf-kopf muted small">{periode === 'jahr' ? 'je Monat' : 'je Woche (Mo–So), letzte 8'} · niedriger ist besser{ziel != null && ` · gestrichelt = Ziel ${n(ziel, 1)}`} · darunter Netzstrom je Tag</div>
         {balken.length === 0 ? <div className="muted small">Noch keine Werte für den Verlauf.</div> : (
           <div className="wsw-verlauf" style={{ gridTemplateColumns: `repeat(${balken.length}, minmax(0, 1fr))` }}
@@ -299,23 +416,7 @@ export default function WoStehenWir({ onNavigate }) {
             Diese {d.tage} Tage einzeln: {d.tage_liste.map((t) => `${wtag(t.tag)} ${n(t.kwh_je_hgt, 1)}`).join(' · ')}.
           </div>
         )}
-      </div>
-
-      <div className="card">
-        <div className="wsw-row wsw-zw">
-          <div className="chart-title">Wie kommen wir dahin? Vorschläge der KI</div>
-          <button type="button" className="btn small" onClick={() => onNavigate('ki')}>{ki.offen > 0 ? `${ki.offen} offen – zu den Vorschlägen` : 'Zu den Vorschlägen'}</button>
-        </div>
-        <div className="muted small" style={{ marginTop: 4 }}>Die KI ändert nichts selbst. Wirkung wird 3 Tage nach Übernahme gemessen.</div>
-        {ki.entschieden.length > 0 && (
-          <ul className="wsw-liste small">
-            {ki.entschieden.map((e) => (
-              <li key={e.id}><span className="muted">{e.decided_at ? dm(e.decided_at.slice(0, 10)) : ''}</span> {e.title}{' – '}
-                <span className="muted">{e.effect_text || 'Wirkung wird nach 3 Tagen gemessen'}</span></li>
-            ))}
-          </ul>
-        )}
-      </div>
+      </section>
     </div>
   );
 }
