@@ -581,3 +581,8 @@ select, input[type='number'], input[type='time'], input[type='email'], input[typ
 .wsw-drei { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .wsw-drei > div { background: var(--neutral-bg); border-radius: 10px; padding: 12px; line-height: 1.45; }
 @media (max-width: 760px) { .wsw-drei { grid-template-columns: 1fr; } }
+.wsw-erkl > summary { cursor: pointer; font-size: 13px; color: var(--muted); list-style: none; display: inline-flex; align-items: center; gap: 4px; }
+.wsw-erkl > summary::-webkit-details-marker { display: none; }
+.wsw-erkl > summary::before { content: '\24D8'; }
+.wsw-erkl > summary:hover { color: var(--ink); }
+.wsw-erkl[open] > div { margin-top: 6px; padding: 10px 12px; border-radius: 10px; background: var(--neutral-bg); line-height: 1.5; }
