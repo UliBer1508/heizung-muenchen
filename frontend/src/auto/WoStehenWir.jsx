@@ -62,7 +62,18 @@ function AmpelKarte({ ampel, label, frage, children }) {
   );
 }
 
-function ZielZeile({ titel, jetzt, ziel, breite, marke, farbe, hinweis, label }) {
+// 25.11.2026 (Uli: „Dann muss man die Kennzahlen auch erklären – in beiden Systemen.“): „Was heißt das?“ je Ziel,
+// mit den Zahlen des gewählten Zeitraums. Gleicher Text wie Venediger (OptimierungView).
+function Erklaerung({ children }) {
+  return (
+    <details className="wsw-erkl">
+      <summary>Was heißt das?</summary>
+      <div className="muted small">{children}</div>
+    </details>
+  );
+}
+
+function ZielZeile({ titel, jetzt, ziel, breite, marke, farbe, hinweis, label, erklaerung }) {
   return (
     <div className="wsw-ziel-zeile">
       <div className="wsw-row wsw-zw">
@@ -74,6 +85,7 @@ function ZielZeile({ titel, jetzt, ziel, breite, marke, farbe, hinweis, label })
         {marke != null && <i style={{ left: `${marke}%` }} />}
       </div>
       {hinweis && <div className="muted small">{hinweis}</div>}
+      {erklaerung && <Erklaerung>{erklaerung}</Erklaerung>}
     </div>
   );
 }
@@ -229,6 +241,9 @@ export default function WoStehenWir({ onNavigate }) {
     setZielEdit(null); laden();
   };
 
+  // Für die Erklärungen: Heizgradtage im Zeitraum (Heizstrom ÷ Kennzahl), selbst genutzter Sonnenstrom
+  const hgtSumme = kwh ? Number(s.heizung_kwh) / kwh : null;
+  const pvGenutzt = Math.max(0, Number(s.pv_kwh) - Number(s.einspeisung_kwh));
   const zielBreite = kwh != null && ziel != null ? (100 * kwh) / (ziel * 1.6) : 0;
   const zielBox = zielEdit == null ? (
     <button type="button" className="wsw-link" onClick={() => setZielEdit(ziel == null ? '' : String(ziel).replace('.', ','))}>{ziel == null ? 'Ziel festlegen' : 'Ziel ändern'}</button>
@@ -334,16 +349,37 @@ export default function WoStehenWir({ onNavigate }) {
               {ziel != null && kwh != null && kwh > ziel && <> Im Ziel wären es rund {n(Number(s.heizung_kwh) * (1 - ziel / kwh))} kWh{mitPreis && s.heizung_netz_eur != null && Number(s.heizung_netz_kwh) > 0
                 ? ` bzw. ${eur(Number(s.heizung_kwh) * (1 - ziel / kwh) * Number(s.heizung_netz_eur) / Number(s.heizung_netz_kwh))}` : ''} weniger in {d.tage} Tagen.</>}
               {zielBox}
-            </span>} />
+            </span>}
+            erklaerung={<>
+              Ein <b>Heizgradtag</b> misst, wie kalt ein Tag war: 18 °C minus mittlere Außentemperatur (Tage über 18 °C zählen nicht).
+              Bei 0 °C draußen sind das 18 Heizgradtage, bei 10 °C nur 8. Die Kennzahl ist der Heizstrom geteilt durch die Heizgradtage –
+              so lassen sich warme und kalte Wochen vergleichen.
+              {kwh != null && hgtSumme != null && <> In diesem Zeitraum: {n(s.heizung_kwh)} kWh Heizstrom ÷ {n(hgtSumme, 1)} Heizgradtage = <b>{n(kwh, 1)}</b>.</>}
+              {ziel != null && <> Ziel {n(ziel, 1)} heißt: bei 0 °C draußen rund {n(ziel * 18)} kWh Heizstrom am Tag, bei 10 °C rund {n(ziel * 8)} kWh.</>}
+              {' '}Der Heizstrom ist geschätzt (Hausverbrauch − Auto − Grundlast) und enthält das Warmwasser der Wärmepumpe.
+              Achtung: Ein guter Wert zusammen mit vielen Raum-Stunden unter Min heißt meist, dass zu wenig geheizt wurde – nicht, dass gespart wurde.
+            </>} />
           <ZielZeile titel="Sonnenstrom im Haus nutzen" jetzt={`${n(s.eigen_pct)} %`} ziel="100 %"
             breite={Number(s.eigen_pct ?? 0)} farbe={sonne === 'gut' ? 'gut' : 'mittel'}
             label={`Sonnenstrom genutzt: ${n(s.eigen_pct)} Prozent, Ziel 100 Prozent`}
-            hinweis={sonne === 'gut' ? 'Erreicht.' : undefined} />
+            hinweis={sonne === 'gut' ? 'Erreicht.' : undefined}
+            erklaerung={<>
+              Anteil des Sonnenstroms, der im Haus bleibt – verbraucht oder in die Batterie geladen – statt ins Netz zu gehen.
+              {Number(s.pv_kwh) > 0 && <> In diesem Zeitraum: {n(s.pv_kwh, 1)} kWh erzeugt, {n(s.einspeisung_kwh, 1)} kWh ins Netz,
+                also {n(pvGenutzt, 1)} kWh im Haus = {n(s.eigen_pct)} %.</>}
+              {' '}Was ins Netz geht, bringt nur die Einspeisevergütung; im Estrich gespeichert ersetzt es teuren Netzstrom.
+            </>} />
           <ZielZeile titel="Kein Raum unter Min" jetzt={`${n(s.h_unter_min)} Raum-Stunden`} ziel="0"
             breite={minJeNacht != null ? Math.min(100, (100 * minJeNacht) / 12) : 0}
             farbe={min === 'gut' ? 'gut' : min === 'mittel' ? 'mittel' : 'schlecht'}
             label={`Raum-Stunden unter Min: ${n(s.h_unter_min)} in ${tageMin} Nächten, Ziel 0`}
-            hinweis="Die Grenze, die nie unterschritten werden darf – Sparen darf nicht auf Kosten von Min gehen." />
+            hinweis="Die Grenze, die nie unterschritten werden darf – Sparen darf nicht auf Kosten von Min gehen."
+            erklaerung={<>
+              Raum-Stunden = Stunden, in denen ein Raum nachts unter seinem Min lag, über alle Räume zusammengezählt
+              (zwei Räume je 1 Stunde = 2 Raum-Stunden). Gezählt wird nachts (Nachtzeit aus den Einstellungen), ab 0,3 °C unter Min.
+              {minJeNacht != null && <> In diesem Zeitraum: {n(s.h_unter_min)} Raum-Stunden in {tageMin} {tageMin === 1 ? 'Nacht' : 'Nächten'} = Ø {n(minJeNacht, 1)} je Nacht.</>}
+              {' '}Typische Ursachen: Wärmepumpe lief nicht, Min zu nah an Normal, Ventil hängt.
+            </>} />
         </div>
       </section>
 
