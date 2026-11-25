@@ -566,3 +566,18 @@ select, input[type='number'], input[type='time'], input[type='email'], input[typ
 .rk-legende { background: var(--neutral-bg); border-radius: 10px; padding: 10px 12px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; color: var(--muted); }
 .rk-legende .rk-temp-l { font-size: 13px; font-weight: 600; }
 @media (max-width: 760px) { .rk-legende { grid-template-columns: 1fr; } }
+
+/* Wo stehen wir – Aufbau wie Venediger (25.11.2026): 1 Wo · 2 Wohin (Zielbalken) · 3 Wie · Verlauf */
+.wsw-h { font-size: 18px; font-weight: 600; margin: 8px 0 0; }
+.wsw-ziele { display: flex; flex-direction: column; gap: 24px; }
+.wsw-ziel-zeile { display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
+.wsw-zbalken { position: relative; height: 12px; border-radius: 999px; background: var(--neutral-bg); }
+.wsw-zbalken > div { position: absolute; inset: 0 auto 0 0; border-radius: 999px; }
+.wsw-zbalken > i { position: absolute; top: -4px; bottom: -4px; width: 3px; border-radius: 2px; background: var(--ink); }
+.wsw-link { all: unset; cursor: pointer; text-decoration: underline; color: var(--muted); }
+.wsw-link:hover { color: var(--ink); }
+.wsw-link:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: 4px; }
+.wsw-vorschlag { border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 6px; }
+.wsw-drei { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.wsw-drei > div { background: var(--neutral-bg); border-radius: 10px; padding: 12px; line-height: 1.45; }
+@media (max-width: 760px) { .wsw-drei { grid-template-columns: 1fr; } }
