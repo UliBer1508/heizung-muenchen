@@ -65,7 +65,11 @@ export function surplusW({ gridW, batteryW, soc }, settings) {
 //   Tagesphase (Uhrzeit):    NACHT → MORGEN → TAG → ABEND → NACHT
 //   Tagesmodus:              night · evening · wait (Wartetag) · grid (Schlechter Tag, Modell b)
 //                            + pv / full (Überschuss, Modell a)
-//   Untergrenze je Raum:     muc_rooms.temp_night – nachts, abends und am Wartetag das Ziel
+//   Drei Temperaturen je Raum (ab 0.15, wie Venediger 14.11.2026):
+//     Min    = muc_rooms.temp_night  – nie darunter; nachts, abends und am Wartetag das Ziel
+//     Normal = muc_rooms.temp_normal – Ziel tagsüber ohne Sonne
+//     PV-Max = muc_rooms.temp_pv     – bis hierhin mit PV-Überschuss, auch bei voller Batterie nicht höher
+//     (muc_rooms.temp_full „Batterie voll“ wird nicht mehr verwendet)
 //   Raumprofil (je Raum):    heat_morning / heat_day = an einem Tag ohne PV in dieser Phase auf Normal
 //   Priorität (je Raum):     muc_rooms.priority 1–4 – gilt für beide Modelle; pv_prio 0 = nie mit PV laden
 //
@@ -76,7 +80,7 @@ export function surplusW({ gridW, batteryW, soc }, settings) {
 // ---------------------------------------------------------------------------
 
 export const PHASES = Object.freeze({ NACHT: 'NACHT', MORGEN: 'MORGEN', TAG: 'TAG', ABEND: 'ABEND' });
-/** Überschuss-Stufe „Batterie voll“: alle PV-Räume auf Voll. Darunter = Anzahl Räume mit PV-Wert. */
+/** Überschuss-Stufe „Batterie voll“: alle PV-Räume gleichzeitig auf PV-Max. Darunter = Anzahl Räume mit PV-Max. */
 export const PV_FULL = 100;
 
 /** Tagesphase zur Uhrzeit. */
@@ -423,10 +427,12 @@ export function allocateRooms({
     const full = level >= PV_FULL;
     const pvCands = free.filter((it) => !granted.has(it.room.id) && !belowIds.has(it.room.id) && pvAllowed(it.room)).sort(order);
     for (const it of pvCands) {
-      const want = clamp(Number(full ? it.room.temp_full : it.room.temp_pv), lo(it), hi(it));
+      // PV-Max (temp_pv) ist das Maximum – auch bei voller Batterie (25.11.2026, wie Venediger 07./14.11.2026).
+      // Voll heißt nur: alle PV-Räume dürfen gleichzeitig auf PV-Max, unabhängig von der Überschuss-Stufe.
+      const want = clamp(Number(it.room.temp_pv), lo(it), hi(it));
       if (want <= it.t.target) continue; // Grundwert ist schon gleich hoch → Durchgang 3
       const t = full
-        ? { mode: 'VOLL', target: want, reason: 'Batterie voll – Estrich maximal laden' }
+        ? { mode: 'VOLL', target: want, reason: 'Batterie voll – alle PV-Räume auf PV-Max' }
         : { mode: 'PV', target: want, reason: `PV-Überschuss ${prioTxt(it.room).trim() ? `(${prioTxt(it.room).trim()}) ` : ''}– Estrich laden` };
       if (!isOpen(it, want)) { it.t = t; it.pvHold = true; continue; } // PV-Wert erreicht → hält ihn
       if (full || pvUsed < level) grant(it, t, 'pv');

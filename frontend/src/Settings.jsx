@@ -3,6 +3,7 @@ import { supabase } from './supabase.js';
 import { Klappkarte } from './Klapp.jsx';
 import Datensicherung from './Datensicherung.jsx';
 import NachtHaltezeit from './NachtHaltezeit.jsx';
+import Raeume from './Raeume.jsx';
 
 const HOUSE_FIELDS = [
   { group: 'Tagesablauf', fields: [
@@ -34,12 +35,7 @@ const HOUSE_FIELDS = [
   ] },
 ];
 
-const ROOM_FIELDS = [
-  { k: 'temp_night', l: 'Untergrenze (nachts, abends, Wartetag)' },
-  { k: 'temp_normal', l: 'Normal' },
-  { k: 'temp_pv', l: 'PV-Laden' },
-  { k: 'temp_full', l: 'Batterie voll' },
-];
+// Raum-Temperaturen (Min · Normal · PV-Max) stehen seit 25.11.2026 in Raeume.jsx – Karten wie Venediger.
 
 function Field({ f, value, onChange }) {
   return (
@@ -115,11 +111,11 @@ function Heizplan({ rooms, settings, reload, setMsg }) {
       </div>
       <div className="muted small plan-help">
         <strong>Haken</strong> = an einem Tag <strong>ohne PV-Überschuss</strong> in dieser Tageszeit auf <strong>Normal</strong>, nach Priorität,
-        höchstens {settings.max_grid_circuits ?? 6} Kreise gleichzeitig (Netzgrenze). Ohne Haken hält der Raum seine <strong>Untergrenze</strong>.
-        Abends ({hh(settings.evening_start)}–{hh(settings.night_start)} Uhr) und nachts gilt für alle Räume die Untergrenze, ebenso an einem
+        höchstens {settings.max_grid_circuits ?? 6} Kreise gleichzeitig (Netzgrenze). Ohne Haken hält der Raum <strong>Min</strong>.
+        Abends ({hh(settings.evening_start)}–{hh(settings.night_start)} Uhr) und nachts gilt für alle Räume Min, ebenso an einem
         <strong> Wartetag</strong> (laut Prognose kommt heute noch Überschuss).
-        <strong> Mit Sonne</strong>: Bei PV-Überschuss werden die Räume nach Priorität auf ihren PV-Wert geheizt – so viele, wie der Überschuss trägt.
-        Die Temperaturen stellst du unten je Raum ein.
+        <strong> Mit Sonne</strong>: Bei PV-Überschuss werden die Räume nach Priorität bis PV-Max geheizt – so viele, wie der Überschuss trägt;
+        bei voller Batterie alle PV-Räume gleichzeitig, aber nie über PV-Max. Die Temperaturen stellst du unten unter <strong>Räume</strong> ein.
       </div>
       <div className="plan-wrap">
         <table className="plan-table">
@@ -129,7 +125,7 @@ function Heizplan({ rooms, settings, reload, setMsg }) {
               {PLAN_FLAGS.map((f) => (
                 <th key={f.k}>{f.l}<div className="plan-time">{hh(settings[f.from])}–{hh(settings[f.to])} Uhr</div></th>
               ))}
-              <th className="hide-sm">Mit Sonne<div className="plan-time">PV-Wert laden</div></th>
+              <th className="hide-sm">Mit Sonne<div className="plan-time">bis PV-Max laden</div></th>
             </tr>
           </thead>
           <tbody>
@@ -141,7 +137,7 @@ function Heizplan({ rooms, settings, reload, setMsg }) {
                     <option value={1}>ja</option>
                     <option value={0}>nie</option>
                   </select>
-                  <div className="plan-t on sun">{room.pv_prio > 0 ? <>{deg(tt.temp_pv)} · voll {deg(tt.temp_full)}</> : 'kein PV'}</div>
+                  <div className="plan-t on sun">{room.pv_prio > 0 ? <>bis {deg(tt.temp_pv)}</> : 'kein PV'}</div>
                 </>
               );
               return (
@@ -226,11 +222,11 @@ function Reihenfolge({ data, settings, reload, setMsg }) {
       </button>
       {open && <>
       <div className="muted small plan-help">
-        Gilt mit und ohne Sonne. <strong>Mit PV-Überschuss</strong> bekommen so viele Räume ihren PV-Wert, wie der Überschuss trägt –
+        Gilt mit und ohne Sonne. <strong>Mit PV-Überschuss</strong> bekommen so viele Räume PV-Max, wie der Überschuss trägt –
         Prio 1 zuerst, alle Räume einer Prio gemeinsam, die nächste Prio, sobald genug übrig ist.
         <strong> Ohne Überschuss</strong> heizen höchstens {settings.max_grid_circuits ?? 6} Kreise gleichzeitig (Netzgrenze), ebenfalls Prio 1 zuerst.
         Wer keinen Kreis bekommt, wartet mit Ventil zu; wer länger als {settings.wait_boost_min ?? 60} min wartet, ist zuerst dran.
-        Räume unter ihrer Untergrenze gehen immer vor.
+        Räume unter Min gehen immer vor.
       </div>
       {data.status?.sequence_info && <div className="notice small">Jetzt: {data.status.sequence_info}</div>}
       {PRIOS.map((p) => {
@@ -330,7 +326,6 @@ function Strompreis({ setMsg }) {
 
 export default function Settings({ data, reload }) {
   const [s, setS] = useState(data.settings);
-  const [rooms, setRooms] = useState(data.rooms);
   const [msg, setMsg] = useState(null);
   const [busy, setBusy] = useState(false);
 
@@ -347,24 +342,6 @@ export default function Settings({ data, reload }) {
     await reload();
     setBusy(false);
   };
-
-  const saveRoom = async (room) => {
-    setBusy(true);
-    setMsg(null);
-    const patch = Object.fromEntries(ROOM_FIELDS.map((f) => [f.k, room[f.k]]));
-    const bad = Object.values(patch).some((v) => v == null || v < 5 || v > 26);
-    if (bad) {
-      setMsg({ err: true, t: 'Temperaturen müssen zwischen 5 und 26 °C liegen.' });
-      setBusy(false);
-      return;
-    }
-    const { error } = await supabase.from('muc_rooms').update({ ...patch, enabled: room.enabled }).eq('id', room.id);
-    setMsg(error ? { err: true, t: error.message } : { t: `${room.name} gespeichert.` });
-    await reload();
-    setBusy(false);
-  };
-
-  const setRoom = (id, k, v) => setRooms((rs) => rs.map((r) => (r.id === id ? { ...r, [k]: v } : r)));
 
   return (
     <div className="stack">
@@ -404,6 +381,8 @@ export default function Settings({ data, reload }) {
         <Reihenfolge data={data} settings={data.settings} reload={reload} setMsg={setMsg} />
       )}
 
+      <Raeume data={data} reload={reload} setMsg={setMsg} />
+
       <Klappkarte id="einstellungen-haus" titel="Haus" sub="Tagesablauf, PV, Netz, Batterie" standardAuf={false}>
         {HOUSE_FIELDS.map((g) => (
           <div key={g.group} className="field-group">
@@ -422,25 +401,6 @@ export default function Settings({ data, reload }) {
 
       <Datensicherung />
 
-      {rooms.map((r) => (
-        <Klappkarte key={r.id} id={`einstellungen-raum-${r.id}`} titel={r.name} standardAuf={false}
-          sum={`${r.enabled ? 'gesteuert' : 'nicht gesteuert'}`}>
-          <div className="eyebrow">Solltemperatur je Modus</div>
-          <div className="fields">
-            {ROOM_FIELDS.map((f) => (
-              <Field key={f.k} f={{ ...f, unit: '°C', step: 0.5 }} value={r[f.k] == null ? null : Number(r[f.k])} onChange={(v) => setRoom(r.id, f.k, v)} />
-            ))}
-          </div>
-          <label className="check">
-            <input type="checkbox" checked={r.enabled} onChange={(e) => setRoom(r.id, 'enabled', e.target.checked)} />
-            Raum wird von der App gesteuert
-          </label>
-          <div className="muted small mono">
-            Loxone: Fühler „{r.loxone_temp_name || '–'}“ · Sollwert „{r.loxone_setpoint_name}“ · Ventil „{r.loxone_valve_name || '–'}“
-          </div>
-          <button className="btn primary" disabled={busy} onClick={() => saveRoom(r)}>{r.name} speichern</button>
-        </Klappkarte>
-      ))}
     </div>
   );
 }

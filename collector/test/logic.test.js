@@ -234,11 +234,11 @@ test('Modell a: am Tag ohne PV-Prognose bekommen die übrigen Räume Normal unte
   assert.equal(t.c.target, 21);
 });
 
-test('Modell a: Batterie voll → alle PV-Räume auf Voll, „nie mit PV“ nicht', () => {
+test('Modell a: Batterie voll → alle PV-Räume gleichzeitig auf PV-Max (nicht höher), „nie mit PV“ nicht', () => {
   const rooms = [item(r('a', 1), 21), item(r('b', 3), 21), item(r('n', 2, { pv_prio: 0 }), 21)];
   const t = byId(A(rooms, { level: PV_FULL }));
-  assert.equal(t.a.target, 24);
-  assert.equal(t.b.target, 24);
+  assert.equal(t.a.target, 23);               // PV-Max, temp_full (24) wird nicht mehr verwendet
+  assert.equal(t.b.target, 23);
   assert.equal(t.n.target, 21);
 });
 

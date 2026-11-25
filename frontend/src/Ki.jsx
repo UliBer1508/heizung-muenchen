@@ -6,7 +6,7 @@ import { Klappkarte } from './Klapp.jsx';
 import { fmtDateTime, fmtT, fmtTime } from './lib.js';
 
 const num = (v, d = 1) => (v == null ? '–' : Number(v).toLocaleString('de-DE', { minimumFractionDigits: d, maximumFractionDigits: d }));
-const PARAM = { temp_night: 'Untergrenze', temp_pv: 'PV-Laden' };
+const PARAM = { temp_night: 'Min', temp_pv: 'PV-Max' };
 const STATUS = {
   genehmigt: { label: 'Übernommen', tone: 'green' },
   geaendert: { label: 'Mit eigenem Wert übernommen', tone: 'green' },
