@@ -60,6 +60,14 @@ Liegt der Raum danach im Schnitt > 60 min/Tag länger unter Soll → **Rücknahm
 | **Keine Raumwerte von Loxone** | Energiewerte kommen, Raumwerte seit 30 min nicht (wie 03.11. 18 Uhr – 05.11. 7 Uhr) |
 | **Automatik ist aus** / **Testmodus ist an** | seit mehr als 6 h |
 | **Ventil bleibt offen, obwohl der Raum warm ist** (ab 24.11.2026) | 2 h lang ≥ 90 % Ventil offen und im Schnitt ≥ 0,5 °C über Soll (EG Wohnzimmer seit 06.11.2026) |
+| **Ventil öffnet nicht** (ab 27.11.2026) | 45 min lang Soll ≥ Ist + 1 °C, Ventil die ganze Zeit zu (OG Eltern Schlafzimmer 27.11.2026) |
+| **Raum wird nicht wärmer, obwohl geheizt wird** (ab 27.11.2026) | 6 h Ventil ≥ 80 % offen, Heizstrom ≥ 800 W, Temperatur nicht gestiegen und unter Soll |
+| **Ventile schalten zu oft** (ab 27.11.2026) | ein Raum öffnet in 6 h ≥ 4-mal; „Loxone schaltet selbst“, wenn das Ventil öfter wechselt als der Sollwert |
+
+**Tägliche Prüfung „Schalten“** (`muc_ki_schalten`, ab 28.11.2026, nach der Analyse): Öffnen ≥ 2 Räume an einem Tag
+≥ 6-mal → **Vorschlag Spanne + 0,5 °C** (`seq_off_delta`, 0,5–3 °C, Uli entscheidet), aber nur wenn eine größere Spanne
+wirkt. Ist sie durch Min begrenzt (Normal − Min ≤ Spanne), kommt nur eine **Info** – Min und Normal stellt Uli selbst ein.
+Wirkungsbericht 3 Tage nach dem Übernehmen: Öffnungen je Raum und Tag vorher/nachher. SQL: `migration-021-ki-ventile.sql`.
 
 Hinweise erscheinen als rote Leiste über jeder Seite und im Tab KI. „Gesehen, ausblenden“ blendet für 24 h aus.
 
