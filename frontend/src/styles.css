@@ -595,3 +595,8 @@ select, input[type='number'], input[type='time'], input[type='email'], input[typ
 .heatnow-why.warn { color: var(--sun); }
 .heatnow-tipps { margin: 4px 0; padding-left: 20px; }
 .heatnow-src .heat-zr { width: auto; margin-top: 0; }
+
+/* Ventil-Test in der Raumkarte (27.11.2026) */
+.valve-test { margin-top: 8px; padding: 6px 8px; border-radius: 8px; background: rgba(0,0,0,0.04); }
+.valve-test.ok { background: rgba(46, 125, 50, 0.10); color: #2e7d32; }
+.valve-test.alert { background: rgba(198, 40, 40, 0.10); color: #b3261e; }
