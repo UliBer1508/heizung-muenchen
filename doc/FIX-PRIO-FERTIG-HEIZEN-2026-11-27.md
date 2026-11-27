@@ -61,3 +61,17 @@ Die Wartezeit-Regel ist in beiden Systemen nicht mehr vorrangig vor der Prio.
 - „Heizung jetzt“: offene Kreise ≤ 6, die Liste der heizenden Räume bleibt stehen, bis ein Raum fertig ist.
 - `select ts, reason from muc_decisions where kind='sequence' order by ts desc limit 20;` – kein Wechsel der Räume
   von Lauf zu Lauf.
+
+## Nachtrag 0.17 – Spanne (27.11.2026, 12:41)
+
+Uli: „Es sollte nicht wieder geöffnet werden, wenn die Temperatur etwas gesunken ist, hier muss eine Spanne rein, 1 bis 2 Grad
+weniger, aber nicht unter Min.“
+
+- Nach dem Ziel geht das Ventil erst wieder auf, wenn der Raum **Ziel − `seq_off_delta`** erreicht, höchstens bis **Min**:
+  Schwelle = max(Ziel − Spanne, Min). Beispiel Normal 22 / Min 21 / Spanne 1,5 → wieder auf unter 21,0 °C;
+  Normal 22 / Min 19 → unter 20,5 °C.
+- `seq_off_delta` in Supabase von 0,8 auf **1,5 °C** gesetzt (27.11.2026 durch Claude), einstellbar in Einstellungen ›
+  Ohne PV-Überschuss › „Spanne“. Ist das Ziel selbst Min (Nacht, Abend, Wartetag), gilt die Untergrenze-Regel wie bisher.
+- Noch nicht gelernt: die Spanne und der Abschaltpunkt sind feste Werte. Gemessen werden schon der Überlauf nach dem
+  Schließen (nachts für „früh zu“) und die Auskühlrate je Raum (`muc_room_model`). Nächster Schritt: daraus je Raum
+  den Abschaltpunkt (Ziel − gemessener Überlauf) und die Spanne vorschlagen (KI-Vorschlag, Uli entscheidet).

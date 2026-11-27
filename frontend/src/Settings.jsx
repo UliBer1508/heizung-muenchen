@@ -22,6 +22,7 @@ const HOUSE_FIELDS = [
   ] },
   { group: 'Ohne PV-Überschuss (Modell b)', fields: [
     { k: 'max_grid_circuits', l: 'Netzgrenze: Kreise gleichzeitig', unit: 'Kreise', step: 1 },
+    { k: 'seq_off_delta', l: 'Spanne: nach dem Ziel erst wieder auf, wenn so viel kälter (nie unter Min)', unit: '°C', step: 0.5 },
     { k: 'wait_min_kwh', l: 'Wartetag ab erwartetem Überschuss (0 = nie)', unit: 'kWh', step: 1 },
     { k: 'wait_boost_min', l: 'Gleiche Prio: wer so lange wartet, ist zuerst dran', unit: 'min', step: 15 },
   ] },
@@ -225,8 +226,8 @@ function Reihenfolge({ data, settings, reload, setMsg }) {
         Gilt mit und ohne Sonne. <strong>Mit PV-Überschuss</strong> bekommen so viele Räume PV-Max, wie der Überschuss trägt –
         Prio 1 zuerst, alle Räume einer Prio gemeinsam, die nächste Prio, sobald genug übrig ist.
         <strong> Ohne Überschuss</strong> heizen höchstens {settings.max_grid_circuits ?? 6} Kreise gleichzeitig (Netzgrenze), ebenfalls Prio 1 zuerst.
-        Wer einen Kreis hat, heizt bis zu seinem Ziel; danach bleibt das Ventil zu, bis der Raum {settings.seq_off_delta ?? 0.8} °C
-        unter das Ziel fällt. Wer keinen Kreis bekommt, wartet mit Ventil zu; innerhalb derselben Prio ist zuerst dran, wer länger
+        Wer einen Kreis hat, heizt bis zu seinem Ziel; danach bleibt das Ventil zu, bis der Raum {settings.seq_off_delta ?? 1.5} °C
+        unter das Ziel fällt – nie tiefer als Min. Wer keinen Kreis bekommt, wartet mit Ventil zu; innerhalb derselben Prio ist zuerst dran, wer länger
         als {settings.wait_boost_min ?? 60} min wartet. Jedes offene Ventil belegt einen Kreis. Räume unter Min gehen immer vor.
       </div>
       {data.status?.sequence_info && <div className="notice small">Jetzt: {data.status.sequence_info}</div>}
