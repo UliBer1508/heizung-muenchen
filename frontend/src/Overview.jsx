@@ -156,6 +156,32 @@ function Forecast({ f }) {
   );
 }
 
+// Ventil-Test (27.11.2026): Die App schaltet kein Ventil direkt, sie schreibt den Sollwert an Loxone; der Raumregler
+// in Loxone macht daraus Ventil auf/zu. Der Test setzt 30 min einen Sollwert 2 °C unter bzw. über dem Ist (manuell)
+// und zeigt, ob Loxone den Sollwert übernimmt und ob das Ventil folgt.
+const TEST_MIN = 30;
+const testKey = (id) => `muc-ventiltest-${id}`;
+const readTest = (id) => { try { return JSON.parse(localStorage.getItem(testKey(id)) || 'null'); } catch { return null; } };
+const writeTest = (id, v) => { try { if (v) localStorage.setItem(testKey(id), JSON.stringify(v)); else localStorage.removeItem(testKey(id)); } catch { /* ohne Speicher */ } };
+
+function ValveTestStatus({ test, room, reading }) {
+  const soll = Number(room.override_temp);
+  const sp = reading?.setpoint == null ? null : Number(reading.setpoint);
+  const spOk = sp != null && Math.abs(sp - soll) < 0.05;
+  const want = test.dir === 'zu' ? 0 : 1;
+  const valveOk = reading?.valve === want;
+  const min = Math.max(0, Math.round((Date.now() - new Date(test.at).getTime()) / 60000));
+  const frisch = reading?.ts && new Date(reading.ts) > new Date(test.at);
+  let tone = 'muted';
+  let text;
+  if (!frisch) text = 'Warte auf die erste Messung nach dem Befehl …';
+  else if (!spOk) { tone = min >= 3 ? 'alert' : 'muted'; text = `Loxone-Soll ${fmtT(sp)} statt ${fmtT(soll)} – ${min >= 3 ? 'Loxone übernimmt den Sollwert nicht (Collector läuft? Loxone-Baustein?)' : 'wird übernommen …'}`; }
+  else if (valveOk) { tone = 'ok'; text = `✓ Loxone hat das Ventil ${test.dir === 'zu' ? 'geschlossen' : 'geöffnet'} (nach ca. ${min} min). Schalten funktioniert.`; }
+  else if (min < 10) text = `Soll ${fmtT(sp)} in Loxone übernommen ✓ – Ventil noch ${want ? 'zu' : 'offen'} (seit ${min} min, Stellantriebe brauchen einige Minuten)`;
+  else { tone = 'alert'; text = `Soll ${fmtT(sp)} in Loxone übernommen, Ventil nach ${min} min noch ${want ? 'zu' : 'offen'} → Loxone folgt nicht (Raumregler-Betriebsart, Ventil-Ausgang oder Stellantrieb prüfen)`; }
+  return <div className={`small valve-test ${tone}`}>Ventil-Test „{test.dir}“: {text}</div>;
+}
+
 function RoomCard({ room, reading, reload }) {
   const [temp, setTemp] = useState(Number(room.override_temp ?? reading?.target ?? room.temp_normal));
   const [hours, setHours] = useState(2);
@@ -175,7 +201,16 @@ function RoomCard({ room, reading, reload }) {
   };
   const start = () =>
     save({ override_temp: temp, override_until: new Date(Date.now() + hours * 3600000).toISOString() });
-  const stop = () => save({ override_temp: null, override_until: null });
+  const stop = () => { writeTest(room.id, null); return save({ override_temp: null, override_until: null }); };
+  const test = overrideOn ? readTest(room.id) : null;
+  const valveTest = (dir) => {
+    const ist = Number(reading?.temp);
+    if (!Number.isFinite(ist)) { setErr('Kein Messwert – Test nicht möglich'); return; }
+    const lo = Number(room.min_temp ?? 5); const hi = Number(room.max_temp ?? 26);
+    const t = dir === 'zu' ? Math.max(lo, Math.floor((ist - 2) * 2) / 2) : Math.min(hi, Math.ceil((ist + 2) * 2) / 2);
+    writeTest(room.id, { dir, at: new Date().toISOString() });
+    return save({ override_temp: t, override_until: new Date(Date.now() + TEST_MIN * 60000).toISOString() });
+  };
 
   const valveOpen = reading?.valve === 1;
   return (
@@ -213,9 +248,15 @@ function RoomCard({ room, reading, reload }) {
             <button className="btn" onClick={stop} disabled={busy}>Beenden</button>
           </div>
         ) : !open ? (
-          <button className="btn ghost override-toggle" onClick={() => { setTemp(Number(reading?.target ?? room.temp_normal)); setOpen(true); }}>
-            Manuell übersteuern …
-          </button>
+          <div className="override-actions">
+            <button className="btn ghost override-toggle" onClick={() => { setTemp(Number(reading?.target ?? room.temp_normal)); setOpen(true); }}>
+              Manuell übersteuern …
+            </button>
+            <button className="btn ghost" onClick={() => valveTest(valveOpen ? 'zu' : 'auf')} disabled={busy || reading?.valve == null}
+              title={`Setzt ${TEST_MIN} min einen Sollwert 2 °C ${valveOpen ? 'unter' : 'über'} dem Ist und prüft, ob Loxone das Ventil schaltet`}>
+              Ventil {valveOpen ? 'zu' : 'auf'} (Test)
+            </button>
+          </div>
         ) : (
           <>
             <div className="override-row">
@@ -235,6 +276,7 @@ function RoomCard({ room, reading, reload }) {
             <div className="muted small">Wird innerhalb einer Minute in Loxone übernommen.</div>
           </>
         )}
+        {test && <ValveTestStatus test={test} room={room} reading={reading} />}
         {err && <div className="alert">{err}</div>}
       </div>
       <div className="room-temps muted small">
