@@ -83,7 +83,7 @@ export default function NachtHaltezeit({ settings, rooms, saveHouse, busy }) {
       <p className="muted small">
         <strong>Haltezeit gelernt: {gelernt} min</strong> – so lange braucht die Wärmepumpe im Mittel, bis sie auf einen
         geöffneten Kreis anspringt ({settings.halte_min_basis ?? 0} Messungen, 14 Tage, Stand {stand(settings.halte_min_stand)}).
-        Wer einen Kreis bekommt, behält ihn mindestens so lange; ein gerade geschlossenes Ventil gilt so lange noch als belegt.
+        Ein gerade geschlossenes Ventil gilt so lange noch als belegt. Wer einen Kreis hat, behält ihn bis zu seinem Ziel (ab 27.11.2026).
         Räume unter der Untergrenze gehen weiter vor, die Netzgrenze gilt immer. {settings.halte_min_vorgabe != null && <>Aktiv: eigene Vorgabe {settings.halte_min_vorgabe} min.</>}
       </p>
       {(!vOk || !spOk) && <div className="alert">Haltezeit 0–60 min oder leer, „höchstens Untergrenze +“ 0–1 °C.</div>}

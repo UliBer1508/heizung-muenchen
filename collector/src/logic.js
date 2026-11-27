@@ -268,8 +268,15 @@ export function holdBelow(temp, want) {
  *      Räume zusätzlich zur Netzgrenze – der Überschuss bezahlt sie.
  *   3. Modell b (Tagesmodus grid): Profil-Räume nach Priorität auf Normal, bis die Netzgrenze voll ist.
  * Offen = Ist < Wunsch − seq_on_delta (bzw. − seq_off_delta, wenn der Raum den Wunsch schon erreicht hatte).
- * Wer keinen Kreis bekommt, wartet mit holdBelow (Ventil zu). Wer seit wait_boost_min wartet, kommt zuerst dran.
- * Fertige Räume halten ihren Wunsch. Ohne Messwert blockiert ein Raum niemanden.
+ * Wer keinen Kreis bekommt, wartet mit holdBelow (Ventil zu). Fertige Räume halten ihren Wunsch (Ventil zu, bis Ist unter
+ * Wunsch − seq_off_delta fällt). Ohne Messwert blockiert ein Raum niemanden.
+ *
+ * Reihenfolge (ab 0.16, Uli 27.11.2026 – kein Hin und Her):
+ *   1. Wer heizt, heizt fertig: ein Raum mit Kreis behält ihn, bis er seinen Wunsch erreicht hat.
+ *      Ausnahme Untergrenze: Räume unter der Untergrenze gehen vor Räumen, die schon darüber liegen (Durchgang 1).
+ *   2. Danach streng nach Priorität. Die Wartezeit (wait_boost_min) zählt nur noch innerhalb derselben Priorität.
+ *   3. Jedes Ventil, das offen ist (oder vor weniger als halte_min offen war), ohne dass die Automatik den Raum heizen
+ *      lässt, belegt einen Kreis – egal, ob der Raum sein Ziel erreicht hat. So bleiben höchstens max_grid_circuits Ventile offen.
  *
  * @param items     [{ room, temp, t }] – t = roomTarget()
  * @param level     Überschuss: Anzahl PV-Räume oder PV_FULL
@@ -295,13 +302,7 @@ export function allocateRooms({
   let pvUsed = 0;
 
   const hasTemp = (it) => it.temp != null && !Number.isNaN(Number(it.temp));
-  // Haltezeit (Stufe A, 0.13): Ein Raum, der einen Kreis bekommen hat, behält ihn mindestens `halt` Minuten
-  // (er steht in seinem Durchgang vorn – auch vor „wartet lange“). Räume unter der Untergrenze gehen weiter vor.
-  const heldUntil = (id) => {
-    if (!halt || !active.has(id) || !grantedSince[id]) return null;
-    const t = new Date(grantedSince[id]).getTime() + halt * 60000;
-    return t > now.getTime() ? t : null;
-  };
+  // Haltezeit (0.13) ist ab 0.16 durch „wer heizt, heizt fertig“ ersetzt; `halt` zählt nur noch beim Nachlauf (0c).
   const isOpen = (it, want) => {
     if (!hasTemp(it)) return false;
     const key = `${it.room.id}@${Number(want)}`;
@@ -313,18 +314,23 @@ export function allocateRooms({
     const s = waitSince[id];
     return s && boostMin > 0 && now - new Date(s) >= boostMin * 60000 ? new Date(s).getTime() : null;
   };
+  // Wer heizt, heizt fertig (0.16): Räume mit Kreis aus dem letzten Lauf stehen vorn, dann Priorität,
+  // dann innerhalb derselben Priorität wer am längsten wartet (ab wait_boost_min), dann Sortierung.
   const order = (a, b) => {
-    const ha = heldUntil(a.room.id) != null; const hb = heldUntil(b.room.id) != null;
-    if (ha !== hb) return ha ? -1 : 1;
+    const ka = active.has(a.room.id); const kb = active.has(b.room.id);
+    if (ka !== kb) return ka ? -1 : 1;
+    const p = prioOf(a.room) - prioOf(b.room);
+    if (p) return p;
     const ba = boostedAt(a.room.id); const bb = boostedAt(b.room.id);
-    if (ba != null && bb != null) return ba - bb;
-    if (ba != null) return -1;
-    if (bb != null) return 1;
-    return prioOf(a.room) - prioOf(b.room)
-      || (active.has(b.room.id) - active.has(a.room.id))
-      || ((a.room.sort ?? 0) - (b.room.sort ?? 0));
+    if (ba != null && bb != null && ba !== bb) return ba - bb;
+    if (ba != null && bb == null) return -1;
+    if (bb != null && ba == null) return 1;
+    return (a.room.sort ?? 0) - (b.room.sort ?? 0);
   };
-  const nachlauf = new Set(); // fertige Räume, deren Ventil noch offen ist – zählen mit
+  const nachlauf = new Set(); // offene Ventile ohne Kreis – zählen mit
+  // Platz für einen Raum: neue Räume nur, wenn auch die nachlaufenden Ventile Platz lassen; ein Raum, der schon heizt,
+  // behält seinen Kreis, solange die zugeteilten Räume die Grenze nicht füllen (Nachlauf verdrängt niemanden, 0.16).
+  const hasRoom = (it) => (active.has(it.room.id) ? gridUsed - nachlauf.size : gridUsed) < cap;
   const grant = (it, t, kind) => {
     it.t = t;
     granted.add(it.room.id);
@@ -393,9 +399,12 @@ export function allocateRooms({
     }
   }
 
-  // 0c. Nachlauf: fertige Räume mit offenem Ventil belegen einen Kreis. Mit Haltezeit gilt ein Ventil noch `halt` Minuten
-  //     nach dem letzten „offen“ als belegt – sonst entsteht jede Minute, in der Loxone ein Ventil kurz zumacht, ein
-  //     freier Kreis, der in der nächsten Minute wieder fehlt (Hin und Her, gemessen 15.–24.11.2026).
+  // 0c. Nachlauf: jedes offene Ventil eines Raums, der keinen Kreis aus dem letzten Lauf hat, belegt einen Kreis –
+  //     fertige Räume, wartende Räume, deren Ventil Loxone noch nicht zugemacht hat, und Ventile, die nicht folgen
+  //     (0.16, 27.11.2026: 8 statt 6 Ventile offen). Mit Haltezeit gilt ein Ventil noch `halt` Minuten nach dem letzten
+  //     „offen“ als belegt – sonst entsteht jede Minute, in der Loxone ein Ventil kurz zumacht, ein freier Kreis, der in
+  //     der nächsten Minute wieder fehlt (Hin und Her, gemessen 15.–24.11.2026). Bekommt ein solcher Raum doch einen
+  //     Kreis, zählt er nur einmal (grant).
   const recentlyOpen = (it) => {
     if (valveOpen(it)) return true;
     if (!halt || fruehIds.has(it.room.id)) return false;
@@ -403,14 +412,14 @@ export function allocateRooms({
     return Boolean(s) && now - new Date(s) < halt * 60000;
   };
   for (const it of free) {
-    if (hasTemp(it) && recentlyOpen(it) && Number(it.temp) >= Number(it.t.target) - onDelta) { nachlauf.add(it.room.id); gridUsed += 1; }
+    if (recentlyOpen(it) && !active.has(it.room.id)) { nachlauf.add(it.room.id); gridUsed += 1; }
   }
 
   // 1. Unter der Untergrenze – zuerst, aber innerhalb der Netzgrenze
   const below = free.filter((it) => !fruehIds.has(it.room.id) && hasTemp(it) && Number(it.temp) < floorOf(it) - onDelta).sort(order);
   for (const it of below) {
     const f = floorOf(it);
-    if (gridUsed < cap) {
+    if (hasRoom(it)) {
       const t = it.t.target > f
         ? { ...it.t, reason: `unter Untergrenze ${fmt1(f)} °C – zuerst dran · ${it.t.reason}` }
         : { mode: 'ABSENK', target: f, reason: `unter Untergrenze ${fmt1(f)} °C – heizt bis dorthin` };
@@ -445,7 +454,7 @@ export function allocateRooms({
   for (const it of rest) {
     const more = pvWaiting.has(it.room.id) ? ' · wartet auf mehr Überschuss' : '';
     if (!isOpen(it, it.t.target)) { it.t = { ...it.t, reason: `${it.t.reason}${more}` }; continue; } // fertig → hält
-    if (gridUsed < cap) grant(it, { ...it.t, reason: `${it.t.reason}${more}` }, 'grid');
+    if (hasRoom(it)) grant(it, { ...it.t, reason: `${it.t.reason}${more}` }, 'grid');
     else waiting.set(it.room.id, pvWaiting.has(it.room.id)
       ? `wartet auf mehr Überschuss, Netzgrenze ${cap} Kreise voll`
       : `wartet – Netzgrenze ${cap} Kreise voll`);
@@ -459,12 +468,12 @@ export function allocateRooms({
     if (!waiting.has(it.room.id) || granted.has(it.room.id)) continue;
     const want = it.t.target;
     newWait[it.room.id] = waitSince[it.room.id] ?? now.toISOString();
-    const held = heating.filter((h) => heldUntil(h.room.id) != null);
+    const zu = out.filter((o) => nachlauf.has(o.room.id) && !granted.has(o.room.id)).map((o) => o.room.name);
     it.t = {
       mode: 'WARTET',
       target: closedTarget(it, want),
-      reason: `${prioTxt(it.room)}${waiting.get(it.room.id)}${names.length ? ` – es heizen: ${names.join(', ')}` : ''}`
-        + (held.length ? ` · Haltezeit: ${held.map((h) => `${h.room.name} bis ${hm(heldUntil(h.room.id))}`).join(', ')}` : ''),
+      reason: `${prioTxt(it.room)}${waiting.get(it.room.id)}${names.length ? ` – es heizen bis zum Ziel: ${names.join(', ')}` : ''}`
+        + (zu.length ? ` · Ventil noch offen: ${zu.join(', ')}` : ''),
       wanted: want,
     };
   }
@@ -632,7 +641,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   max_grid_circuits: 6, // Netzgrenze: so viele Kreise gleichzeitig ohne Überschuss (Konzept 09.11.2026 §5)
   wait_min_kwh: 5,      // Wartetag, wenn heute noch so viel Überschuss erwartet wird (0 = nie warten)
   battery_kwh: 10,      // Akku-Kapazität (für „Akku bis voll“ in der Wartetag-Rechnung)
-  wait_boost_min: 60,   // wer so lange wartet, kommt zuerst dran
+  wait_boost_min: 60,   // wer so lange wartet, kommt innerhalb seiner Priorität zuerst dran (0.16: nicht mehr vor Prio)
   seq_on_delta: 0.3,    // Raum gilt als fertig ab Soll − 0,3 °C
   seq_off_delta: 0.8,   // … und wieder als offen unter Soll − 0,8 °C
   nacht_frueh_aus: true, // ohne Sonne (Nacht, Abend, Wartetag) Ventil früh zu, Estrich nicht laden (0.13, migration-016)
