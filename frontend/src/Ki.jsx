@@ -6,7 +6,7 @@ import { Klappkarte } from './Klapp.jsx';
 import { fmtDateTime, fmtT, fmtTime } from './lib.js';
 
 const num = (v, d = 1) => (v == null ? '–' : Number(v).toLocaleString('de-DE', { minimumFractionDigits: d, maximumFractionDigits: d }));
-const PARAM = { temp_night: 'Min', temp_pv: 'PV-Max' };
+const PARAM = { temp_night: 'Min', temp_pv: 'PV-Max', seq_off_delta: 'Spanne' };
 const STATUS = {
   genehmigt: { label: 'Übernommen', tone: 'green' },
   geaendert: { label: 'Mit eigenem Wert übernommen', tone: 'green' },
@@ -65,7 +65,7 @@ function Suggestion({ s, roomName, onDone }) {
         <div className="ki-row"><span className="ki-label">{isHint ? 'Was tun' : 'Was es bringt – und kostet'}</span><span>{s.effect}</span></div>
       )}
       {!isHint && s.days != null && (
-        <div className="muted small">Grundlage: {s.days} {s.rule === 'absenk_fehlt' ? 'Nächte' : 'Tage'} · {roomName}</div>
+        <div className="muted small">Grundlage: {s.days} {s.rule === 'absenk_fehlt' ? 'Nächte' : 'Tage'} · {roomName || 'ganzes Haus'}</div>
       )}
       {isHint && <div className="muted small">seit {fmtDateTime(s.created_at)}</div>}
 
