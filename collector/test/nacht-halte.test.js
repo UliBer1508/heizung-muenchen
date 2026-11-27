@@ -107,13 +107,13 @@ test('0.16: Ventil eines wartenden Raums, das Loxone noch nicht zugemacht hat, b
 test('0.16: nach dem Ziel bleibt das Ventil zu, bis Ist unter Ziel − 0,8 °C fällt', () => {
   const settings = { ...S, max_grid_circuits: 1 };
   const a = (t) => [tag(day({ id: 'a', prio: 1, extra: { temp_night: 19 } }), t)];
-  const fertig = allocateRooms({ items: a(21.8), settings, dayMode: 'grid', now: at('12:00'), active: new Set(['a']) });
+  const fertig = allocateRooms({ items: a(21.8), settings: { ...settings, seq_off_delta: 0.8 }, dayMode: 'grid', now: at('12:00'), active: new Set(['a']) });
   assert.equal(fertig.active.length, 0);         // 21,8 ≥ 22 − 0,3 → zu
   const reached = fertig.reached;
   for (const t of [21.6, 21.3, 21.2]) {
-    assert.equal(allocateRooms({ items: a(t), settings, dayMode: 'grid', now: at('12:30'), reached }).active.length, 0, `bei ${t}`);
+    assert.equal(allocateRooms({ items: a(t), settings: { ...settings, seq_off_delta: 0.8 }, dayMode: 'grid', now: at('12:30'), reached }).active.length, 0, `bei ${t}`);
   }
-  assert.deepEqual(allocateRooms({ items: a(21.1), settings, dayMode: 'grid', now: at('13:00'), reached }).active, ['a']);
+  assert.deepEqual(allocateRooms({ items: a(21.1), settings: { ...settings, seq_off_delta: 0.8 }, dayMode: 'grid', now: at('13:00'), reached }).active, ['a']);
 });
 
 test('0.16: Raum unter Min geht vor einem Raum, der schon über Min Richtung Normal heizt', () => {
@@ -142,4 +142,17 @@ test('0.16: Lage 27.11.2026 12:16 – höchstens 6 Ventile, Prio 1 zuerst, kein 
   assert.deepEqual(new Set(res.active), active);
   const res2 = allocateRooms({ items: mk(), settings, dayMode: 'grid', now: at('12:21'), active: new Set(res.active), reached: res.reached, waitSince: res.waitSince });
   assert.deepEqual(new Set(res2.active), active);
+});
+
+test('0.17: Spanne – nach dem Ziel erst wieder auf bei Ziel − 1,5 °C, nie unter Min', () => {
+  const settings = { ...S, max_grid_circuits: 1, seq_off_delta: 1.5 };
+  const run = (t, min, reached) => allocateRooms({ items: [tag(day({ id: 'a', prio: 1, extra: { temp_night: min } }), t)], settings, dayMode: 'grid', now: at('12:00'), reached });
+  // Normal 22, Min 19 → wieder auf unter 20,5
+  let reached = run(21.8, 19, new Set()).reached;
+  assert.equal(run(20.6, 19, reached).active.length, 0);
+  assert.deepEqual(run(20.4, 19, reached).active, ['a']);
+  // Normal 22, Min 21 → 20,5 läge unter Min → wieder auf unter 21,0
+  reached = run(21.8, 21, new Set()).reached;
+  assert.equal(run(21.0, 21, reached).active.length, 0);
+  assert.deepEqual(run(20.9, 21, reached).active, ['a']);
 });

@@ -267,7 +267,7 @@ export function holdBelow(temp, want) {
  *   2. Modell a (level > 0): PV-Räume nach Priorität auf PV-Wert (Voll bei PV_FULL), höchstens `level`
  *      Räume zusätzlich zur Netzgrenze – der Überschuss bezahlt sie.
  *   3. Modell b (Tagesmodus grid): Profil-Räume nach Priorität auf Normal, bis die Netzgrenze voll ist.
- * Offen = Ist < Wunsch − seq_on_delta (bzw. − seq_off_delta, wenn der Raum den Wunsch schon erreicht hatte).
+ * Offen = Ist < Wunsch − seq_on_delta (bzw. − seq_off_delta, höchstens bis Min, wenn der Raum den Wunsch schon erreicht hatte).
  * Wer keinen Kreis bekommt, wartet mit holdBelow (Ventil zu). Fertige Räume halten ihren Wunsch (Ventil zu, bis Ist unter
  * Wunsch − seq_off_delta fällt). Ohne Messwert blockiert ein Raum niemanden.
  *
@@ -306,7 +306,13 @@ export function allocateRooms({
   const isOpen = (it, want) => {
     if (!hasTemp(it)) return false;
     const key = `${it.room.id}@${Number(want)}`;
-    const done = Number(it.temp) >= Number(want) - (reached.has(key) ? offDelta : onDelta) - 1e-9;
+    // Spanne (0.17, Uli 27.11.2026): nach dem Ziel erst wieder auf, wenn der Raum seq_off_delta (Standard 1,5 °C) unter
+    // dem Ziel liegt – aber nie unter Min: liegt Ziel − Spanne unter Min, öffnet er bei Min.
+    // Ist das Ziel selbst Min (Nacht, Abend, Wartetag), gilt wie bisher die Untergrenze-Regel (Durchgang 1).
+    const w = Number(want);
+    const f = floorOf(it);
+    const thr = reached.has(key) ? (w > f ? Math.max(w - offDelta, f) : w - offDelta) : w - onDelta;
+    const done = Number(it.temp) >= thr - 1e-9;
     if (done) newReached.add(key);
     return !done;
   };
@@ -643,7 +649,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   battery_kwh: 10,      // Akku-Kapazität (für „Akku bis voll“ in der Wartetag-Rechnung)
   wait_boost_min: 60,   // wer so lange wartet, kommt innerhalb seiner Priorität zuerst dran (0.16: nicht mehr vor Prio)
   seq_on_delta: 0.3,    // Raum gilt als fertig ab Soll − 0,3 °C
-  seq_off_delta: 0.8,   // … und wieder als offen unter Soll − 0,8 °C
+  seq_off_delta: 1.5,   // … und erst wieder offen unter Soll − 1,5 °C, nie unter Min (Spanne, 0.17)
   nacht_frueh_aus: true, // ohne Sonne (Nacht, Abend, Wartetag) Ventil früh zu, Estrich nicht laden (0.13, migration-016)
   nacht_spitze_c: 0.1,   // … höchstens Untergrenze + so viel (inkl. gemessenem Überlauf)
 });

@@ -251,11 +251,12 @@ test('Modell a: Raum hat PV-Wert erreicht → hält ihn ohne Kreis, nächster Ra
   assert.deepEqual(res.active, ['b']);
 });
 
-test('Hysterese: erreichter Wunsch gilt erst unter Wunsch − 0,8 wieder als offen', () => {
+test('Hysterese: erreichter Wunsch gilt erst unter Wunsch − 1,5 wieder als offen (0.17)', () => {
   const reached = new Set(['a@21']);
   const still = A([item(r('a', 1), 20.4)], { reached, settings: { ...S, max_grid_circuits: 1 } });
   assert.equal(still.active.length, 0);
-  const back = A([item(r('a', 1), 20.1)], { reached, settings: { ...S, max_grid_circuits: 1 } });
+  assert.equal(A([item(r('a', 1), 19.6)], { reached, settings: { ...S, max_grid_circuits: 1 } }).active.length, 0);
+  const back = A([item(r('a', 1), 19.4)], { reached, settings: { ...S, max_grid_circuits: 1 } });
   assert.deepEqual(back.active, ['a']);
 });
 
