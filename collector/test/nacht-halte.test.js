@@ -47,17 +47,18 @@ test('Schutzzeit: kein neuer Anstoß, solange über der Untergrenze; darunter he
   assert.equal(byId(cold).a.target, 20);
 });
 
-test('Haltezeit: Kreis bleibt beim Raum, auch wenn ein Raum mit kleinerer Prio-Nummer kommt', () => {
+test('Wer heizt, heizt fertig: Kreis bleibt beim Raum, auch wenn ein Raum mit kleinerer Prio-Nummer kommt (0.16)', () => {
   const items = [item(room('p1', 1), 19.5), item(room('p2', 2), 19.5)];
   const settings = { ...S, max_grid_circuits: 1 };
-  const ohne = allocateRooms({ items, settings, dayMode: 'night', now: at('23:05'), active: new Set(['p2']) });
-  assert.deepEqual(ohne.active, ['p1']);         // ohne Haltezeit: Prio 1 verdrängt
-  const mit = allocateRooms({ items, settings, dayMode: 'night', now: at('23:05'), active: new Set(['p2']), haltMin: 15, grantedSince: { p2: at('23:00').toISOString() } });
-  assert.deepEqual(mit.active, ['p2']);
-  assert.match(byId(mit).p1.reason, /Haltezeit: p2 bis 23:15/);
-  const spaeter = allocateRooms({ items, settings, dayMode: 'night', now: at('23:16'), active: new Set(['p2']), haltMin: 15, grantedSince: { p2: at('23:00').toISOString() } });
-  assert.deepEqual(spaeter.active, ['p1']);      // Haltezeit vorbei
-  assert.equal(mit.grantedSince.p2, at('23:00').toISOString());
+  const neu = allocateRooms({ items, settings, dayMode: 'night', now: at('23:05') });
+  assert.deepEqual(neu.active, ['p1']);          // niemand heizt → Prio 1 zuerst
+  const laeuft = allocateRooms({ items, settings, dayMode: 'night', now: at('23:05'), active: new Set(['p2']) });
+  assert.deepEqual(laeuft.active, ['p2']);       // p2 heizt schon → behält den Kreis bis zum Ziel
+  assert.match(byId(laeuft).p1.reason, /es heizen bis zum Ziel: p2/);
+  const spaeter = allocateRooms({ items, settings, dayMode: 'night', now: at('03:00'), active: new Set(['p2']) });
+  assert.deepEqual(spaeter.active, ['p2']);      // auch nach Stunden – kein Zeitlimit
+  const fertig = allocateRooms({ items: [items[0], item(room('p2', 2), 20.0)], settings, dayMode: 'night', now: at('03:00'), active: new Set(['p2']) });
+  assert.deepEqual(fertig.active, ['p1']);       // p2 am Ziel → Kreis an p1
 });
 
 test('Haltezeit: Ventil eines fertigen Raums gilt noch halte_min als belegt (kein Kreis für 1 Minute)', () => {
@@ -87,4 +88,58 @@ test('Haltezeit: Vorgabe vor gelerntem Wert, sonst 15 min', () => {
   assert.equal(haltezeitOf({ halte_min_gelernt: 2 }), 5);
   assert.equal(haltezeitOf({ halte_min_gelernt: 12, halte_min_vorgabe: 0 }), 0);
   assert.equal(haltezeitOf({ halte_min_gelernt: 12, halte_min_vorgabe: 20 }), 20);
+});
+
+// ---------------------------------------------------------------------------
+// 0.16 (27.11.2026): nach Priorität heizen, fertig heizen, offene Ventile zählen
+const tag = (r, temp, opts = {}) => item(r, temp, { phase: 'TAG', dayMode: 'grid', now: at('12:00'), ...opts });
+const day = (r) => ({ ...room(r.id, r.prio, { temp_night: 21, temp_normal: 22, ...r.extra }) });
+
+test('0.16: Ventil eines wartenden Raums, das Loxone noch nicht zugemacht hat, belegt einen Kreis', () => {
+  const items = [tag(day({ id: 'a', prio: 1 }), 20.0), tag(day({ id: 'b', prio: 1 }), 20.0),
+    tag(day({ id: 'w', prio: 2 }), 20.5, { valve: 1, setpoint: 20.0 })];
+  const res = allocateRooms({ items, settings: { ...S, max_grid_circuits: 2 }, dayMode: 'grid', now: at('12:00') });
+  assert.deepEqual(res.active, ['a']);           // w hat noch offenes Ventil → nur 1 Kreis frei
+  assert.equal(byId(res).b.mode, 'WARTET');
+  assert.match(byId(res).b.reason, /Ventil noch offen: w/);
+});
+
+test('0.16: nach dem Ziel bleibt das Ventil zu, bis Ist unter Ziel − 0,8 °C fällt', () => {
+  const settings = { ...S, max_grid_circuits: 1 };
+  const a = (t) => [tag(day({ id: 'a', prio: 1, extra: { temp_night: 19 } }), t)];
+  const fertig = allocateRooms({ items: a(21.8), settings, dayMode: 'grid', now: at('12:00'), active: new Set(['a']) });
+  assert.equal(fertig.active.length, 0);         // 21,8 ≥ 22 − 0,3 → zu
+  const reached = fertig.reached;
+  for (const t of [21.6, 21.3, 21.2]) {
+    assert.equal(allocateRooms({ items: a(t), settings, dayMode: 'grid', now: at('12:30'), reached }).active.length, 0, `bei ${t}`);
+  }
+  assert.deepEqual(allocateRooms({ items: a(21.1), settings, dayMode: 'grid', now: at('13:00'), reached }).active, ['a']);
+});
+
+test('0.16: Raum unter Min geht vor einem Raum, der schon über Min Richtung Normal heizt', () => {
+  const items = [tag(day({ id: 'warm', prio: 1 }), 21.4), tag(day({ id: 'kalt', prio: 2 }), 20.2)];
+  const res = allocateRooms({ items, settings: { ...S, max_grid_circuits: 1 }, dayMode: 'grid', now: at('12:00'), active: new Set(['warm']) });
+  assert.deepEqual(res.active, ['kalt']);
+  assert.equal(byId(res).warm.mode, 'WARTET');
+});
+
+test('0.16: Lage 27.11.2026 12:16 – höchstens 6 Ventile, Prio 1 zuerst, kein Wechsel im nächsten Lauf', () => {
+  // [id, prio, Ist, Min, Normal, Ventil]
+  const lage = [
+    ['OG Eltern Bad', 1, 20.0, 21, 22, 1], ['OG Eltern Schlafzimmer', 1, 20.0, 21, 22, 0], ['OG Luis Bad', 1, 21.0, 21, 22, 0],
+    ['OG Luis Schlafzimmer', 1, 20.5, 21, 22, 1], ['DG Bad', 2, 20.5, 21, 22, 1], ['DG Schlafzimmer', 2, 20.2, 21, 22, 0],
+    ['DG Wohnen', 2, 20.4, 21, 22, 0], ['EG Büro', 2, 18.8, 21, 22, 0], ['EG Eingang', 2, 20.5, 21, 22, 1],
+    ['EG Küche', 2, 19.2, 21, 22, 1], ['EG WC', 2, 21.6, 20, 21, 0], ['EG Wohnzimmer', 2, 19.7, 21, 22, 0],
+    ['KG Hobbyraum', 2, 20.6, 21, 22, 1], ['OG Ankleide', 2, 19.2, 20, 21, 1], ['OG Büro', 2, 20.1, 21, 22, 1],
+  ];
+  const mk = () => lage.map(([id, prio, t, min, normal, valve], i) =>
+    tag(room(id, prio, { temp_night: min, temp_normal: normal, sort: i }), t, { valve }));
+  const settings = { ...S, max_grid_circuits: 6 };
+  const active = new Set(['KG Hobbyraum', 'OG Eltern Bad', 'OG Luis Schlafzimmer', 'OG Eltern Schlafzimmer', 'OG Ankleide', 'EG Eingang']);
+  const res = allocateRooms({ items: mk(), settings, dayMode: 'grid', now: at('12:16'), active, haltMin: 12 });
+  // offen und nicht zugeteilt: DG Bad, EG Küche, OG Büro → belegen 3 Kreise; die 6 Zugeteilten behalten ihren Kreis,
+  // der Rest wartet. Im nächsten Lauf (Ventile zu) ändert sich die Zuteilung nicht.
+  assert.deepEqual(new Set(res.active), active);
+  const res2 = allocateRooms({ items: mk(), settings, dayMode: 'grid', now: at('12:21'), active: new Set(res.active), reached: res.reached, waitSince: res.waitSince });
+  assert.deepEqual(new Set(res2.active), active);
 });

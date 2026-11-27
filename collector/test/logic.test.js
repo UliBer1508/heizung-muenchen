@@ -259,11 +259,13 @@ test('Hysterese: erreichter Wunsch gilt erst unter Wunsch − 0,8 wieder als off
   assert.deepEqual(back.active, ['a']);
 });
 
-test('Wer lange wartet, kommt zuerst dran', () => {
-  const rooms = [item(r('a', 1), 19), item(r('b', 2), 19)];
+test('Wer lange wartet, kommt nur innerhalb seiner Priorität zuerst dran (0.16)', () => {
   const settings = { ...S, max_grid_circuits: 1 };
-  assert.deepEqual(allocateRooms({ items: rooms, settings, now: at('12:00') }).active, ['a']);
-  assert.deepEqual(allocateRooms({ items: rooms, settings, waitSince: { b: at('10:30').toISOString() }, now: at('12:00') }).active, ['b']);
+  const prios = [item(r('a', 1), 19), item(r('b', 2), 19)];
+  assert.deepEqual(allocateRooms({ items: prios, settings, waitSince: { b: at('10:30').toISOString() }, now: at('12:00') }).active, ['a']);
+  const gleich = [item(r('a', 2), 19), item(r('b', 2), 19)];
+  assert.deepEqual(allocateRooms({ items: gleich, settings, now: at('12:00') }).active, ['a']);
+  assert.deepEqual(allocateRooms({ items: gleich, settings, waitSince: { b: at('10:30').toISOString() }, now: at('12:00') }).active, ['b']);
 });
 
 test('Manuelle Räume zählen mit, Räume ohne Messwert blockieren nicht', () => {
